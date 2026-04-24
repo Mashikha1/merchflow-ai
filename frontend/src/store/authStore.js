@@ -49,7 +49,19 @@ export const useAuthStore = create(
         set({ status: 'anonymous', user: null, token: null })
       },
 
+      loginWithToken: async (token) => {
+        const res = await fetch(`${BASE_URL}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (!res.ok) throw new Error('Invalid token')
+        const user = await res.json()
+        set({ status: 'authenticated', user, token })
+        return user
+      },
+
       setLoginMode: (mode) => set({ loginMode: mode }),
+
+      setUser: (user) => set({ user }),
 
       setRole: (role) => {
         const u = get().user

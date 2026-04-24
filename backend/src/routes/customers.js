@@ -11,6 +11,7 @@ router.get('/', async (req, res, next) => {
         const { search, status, segment, archived } = req.query
         const customers = await prisma.customer.findMany({
             where: {
+                createdById: req.user.id,
                 archived: archived === 'true' ? true : false,
                 ...(search && {
                     OR: [
@@ -41,11 +42,10 @@ router.get('/:id', async (req, res, next) => {
             include: {
                 notes: { orderBy: { createdAt: 'desc' } },
                 reminders: { orderBy: { dueAt: 'asc' } },
-                quotes: { orderBy: { createdAt: 'desc' }, take: 10 },
-                activities: { orderBy: { createdAt: 'desc' }, take: 20 }
+                quotes: { orderBy: { createdAt: 'desc' }, take: 10 }
             }
         })
-        if (!c) return res.status(404).json({ error: 'Customer not found' })
+        if (!c || (c.createdById && c.createdById !== req.user.id)) return res.status(404).json({ error: 'Customer not found' })
         res.json(c)
     } catch (err) { next(err) }
 })
@@ -67,7 +67,8 @@ router.post('/', async (req, res, next) => {
                 assignedOwner, preferredOrderType, moqExpectations,
                 preferredCategories: preferredCategories || [],
                 preferredCollections: preferredCollections || [],
-                tags: tags || []
+                tags: tags || [],
+                createdById: req.user.id
             }
         })
         res.status(201).json(customer)
@@ -77,6 +78,9 @@ router.post('/', async (req, res, next) => {
 // PUT /api/customers/:id
 router.put('/:id', async (req, res, next) => {
     try {
+        const existing = await prisma.customer.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Customer not found' })
+
         const customer = await prisma.customer.update({
             where: { id: req.params.id },
             data: { ...req.body, status: req.body.status ? req.body.status.toUpperCase() : undefined, updatedAt: new Date(), lastActivityAt: new Date() }
@@ -90,6 +94,9 @@ router.post('/:id/notes', async (req, res, next) => {
     try {
         const { body } = req.body
         if (!body) return res.status(400).json({ error: 'body required' })
+        const existing = await prisma.customer.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Customer not found' })
+
         const note = await prisma.customerNote.create({
             data: { customerId: req.params.id, body, userId: req.user.id }
         })
@@ -103,6 +110,9 @@ router.post('/:id/reminders', async (req, res, next) => {
     try {
         const { body, dueAt } = req.body
         if (!body || !dueAt) return res.status(400).json({ error: 'body and dueAt required' })
+        const existing = await prisma.customer.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Customer not found' })
+
         const reminder = await prisma.customerReminder.create({
             data: { customerId: req.params.id, body, dueAt: new Date(dueAt) }
         })
@@ -113,6 +123,9 @@ router.post('/:id/reminders', async (req, res, next) => {
 // PATCH /api/customers/:id/archive
 router.patch('/:id/archive', async (req, res, next) => {
     try {
+        const existing = await prisma.customer.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Customer not found' })
+
         const customer = await prisma.customer.update({
             where: { id: req.params.id },
             data: { archived: true, updatedAt: new Date() }

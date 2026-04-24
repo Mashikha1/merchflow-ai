@@ -204,7 +204,6 @@ export function CatalogBuilderPage() {
         if (!catalog) return
         try {
             toast.message('Generating PDF…', { description: 'Rendering with headless Chrome' })
-            const storageSnapshot = JSON.parse(localStorage.getItem('merchflow_catalogs') || '[]')
             let sectionsPayload = await serializeSections(sections)
             sectionsPayload = sectionsPayload.filter((s) => {
                 if (s.type === 'product_grid') return true
@@ -220,10 +219,12 @@ export function CatalogBuilderPage() {
                 if (s.type === 'ai_tryon') return s.data?.enabled === true
                 return false
             })
+            const auth = JSON.parse(localStorage.getItem('merchflow_auth') || '{}')
+            const token = auth?.state?.token || null
             const res = await fetch(`/api/export`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ catalogId: catalog.id, storageSnapshot, sections: sectionsPayload })
+                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                body: JSON.stringify({ catalogId: catalog.id, sections: sectionsPayload })
             })
             const ct = res.headers.get('content-type') || ''
             if (!res.ok) {
@@ -779,24 +780,18 @@ export function CatalogBuilderPage() {
                                                         <div className="text-right px-2">Wholesale</div>
                                                         <div className="text-right px-2">MSRP</div>
                                                     </div>
-                                                    <div className="grid grid-cols-4 p-3 border-b text-content-primary hover:bg-app-hover transition-colors">
-                                                        <div className="font-mono text-left px-2 text-content-secondary">HD-WSH-02</div>
-                                                        <div className="font-bold text-left px-2">Oversized Washed Hoodie</div>
-                                                        <div className="text-right px-2 font-medium">$42.50</div>
-                                                        <div className="text-right px-2 font-medium">$85.00</div>
-                                                    </div>
-                                                    <div className="grid grid-cols-4 p-3 border-b text-content-primary hover:bg-app-hover transition-colors">
-                                                        <div className="font-mono text-left px-2 text-content-secondary">TS-CORE-100</div>
-                                                        <div className="font-bold text-left px-2">Core Heavyweight Tee</div>
-                                                        <div className="text-right px-2 font-medium">$15.00</div>
-                                                        <div className="text-right px-2 font-medium">$35.00</div>
-                                                    </div>
-                                                    <div className="grid grid-cols-4 p-3 border-b text-content-primary hover:bg-app-hover transition-colors">
-                                                        <div className="font-mono text-left px-2 text-content-secondary">DNM-SLV-01</div>
-                                                        <div className="font-bold text-left px-2">Selvedge Straight Jean</div>
-                                                        <div className="text-right px-2 font-medium">$50.00</div>
-                                                        <div className="text-right px-2 font-medium">$120.00</div>
-                                                    </div>
+                                                    {products.length === 0 ? (
+                                                        <div className="p-6 text-center text-content-tertiary text-[13px]">No products added yet. Add products to see pricing here.</div>
+                                                    ) : (
+                                                        products.slice(0, 20).map((p) => (
+                                                            <div key={p.id} className="grid grid-cols-4 p-3 border-b text-content-primary hover:bg-app-hover transition-colors">
+                                                                <div className="font-mono text-left px-2 text-content-secondary">{p.sku || '—'}</div>
+                                                                <div className="font-bold text-left px-2">{p.name}</div>
+                                                                <div className="text-right px-2 font-medium">{p.cost ? `$${Number(p.cost).toFixed(2)}` : '—'}</div>
+                                                                <div className="text-right px-2 font-medium">{p.price ? `$${Number(p.price).toFixed(2)}` : '—'}</div>
+                                                            </div>
+                                                        ))
+                                                    )}
                                                 </div>
                                             </div>
                                         )}

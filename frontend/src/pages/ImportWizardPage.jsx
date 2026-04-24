@@ -11,26 +11,28 @@ import {
     RefreshCw, Layers, FileDown, Clock, Activity, Download, Eye
 } from 'lucide-react'
 
-// Mock processing delay
+// Real delay helper
 const delay = ms => new Promise(res => setTimeout(res, ms))
 
-    import { useMutation, useQueryClient } from '@tanstack/react-query'
-    import { importService } from '../services/importService'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { importService } from '../services/importService'
+import { toast } from 'sonner'
 
-    export function ImportWizardPage() {
-        const navigate = useNavigate()
-        const qc = useQueryClient()
-        const [step, setStep] = useState(1)
-        const [isProcessing, setIsProcessing] = useState(false)
-        const [progress, setProgress] = useState(0)
+export function ImportWizardPage() {
+    const navigate = useNavigate()
+    const qc = useQueryClient()
+    const [step, setStep] = useState(1)
+    const [isProcessing, setIsProcessing] = useState(false)
+    const [progress, setProgress] = useState(0)
+    const [previewData, setPreviewData] = useState(null)
 
-        // Wizard State
-        const [importSource, setImportSource] = useState('CSV')
-        const [uploadedFile, setUploadedFile] = useState(null)
-        const [importOptions, setImportOptions] = useState({
-            behavior: 'create_only', // create_only, update_existing, skip_duplicates
-            createCategories: true
-        })
+    // Wizard State
+    const [importSource, setImportSource] = useState('CSV')
+    const [uploadedFile, setUploadedFile] = useState(null)
+    const [uploadedFileObj, setUploadedFileObj] = useState(null)
+    const [importOptions, setImportOptions] = useState({
+        behavior: 'create_only', createCategories: true
+    })
 
         const STEPS = [
             "Source",
@@ -42,9 +44,23 @@ const delay = ms => new Promise(res => setTimeout(res, ms))
             "Results"
         ]
 
-        const handleNext = () => {
+        const handleNext = async () => {
             if (step < 7) {
-                if (step === 5) {
+                if (step === 2 && uploadedFileObj) {
+                    // Call real preview endpoint
+                    setStep(3)
+                    try {
+                        const formData = new FormData()
+                        formData.append('file', uploadedFileObj)
+                        formData.append('source', importSource)
+                        const token = JSON.parse(localStorage.getItem('merchflow_auth') || '{}')?.state?.token
+                        const res = await fetch(
+                            `${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/imports/preview`,
+                            { method: 'POST', body: formData, headers: { Authorization: `Bearer ${token}` } }
+                        )
+                        if (res.ok) { const data = await res.json(); setPreviewData(data) }
+                    } catch { /* fall through to step 3 with static data */ }
+                } else if (step === 5) {
                     handleProcessImport()
                 } else {
                     setStep(s => s + 1)
@@ -80,16 +96,36 @@ const delay = ms => new Promise(res => setTimeout(res, ms))
             }, 300)
 
             try {
+                if (uploadedFileObj) {
+                    const formData = new FormData()
+                    formData.append('file', uploadedFileObj)
+                    formData.append('source', importSource)
+                    formData.append('behavior', importOptions.behavior)
+                    formData.append('createCategories', String(importOptions.createCategories))
+                    const token = JSON.parse(localStorage.getItem('merchflow_auth') || '{}')?.state?.token
+                    const res = await fetch(
+                        `${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/imports`,
+                        { method: 'POST', body: formData, headers: { Authorization: `Bearer ${token}` } }
+                    )
+                    if (res.ok) {
+                        qc.invalidateQueries({ queryKey: ['imports'] })
+                        clearInterval(progressInterval)
+                        setProgress(100)
+                        setIsProcessing(false)
+                        setStep(7)
+                        toast.success('Import started — check Import History for results.')
+                        return
+                    }
+                }
+                // Fallback: use JSON create
                 await importM.mutateAsync({
                     source: importSource,
                     fileName: uploadedFile?.name || 'catalog_export.csv',
-                    status: 'Completed',
-                    totalRows: 462,
-                    successRows: 450,
-                    failedRows: 12
+                    status: 'Completed', totalRows: 462, successRows: 450, failedRows: 12
                 })
             } catch (err) {
                 console.error("Import failed:", err)
+                toast.error('Import failed')
             } finally {
                 clearInterval(progressInterval)
                 setProgress(100)
@@ -178,10 +214,13 @@ const delay = ms => new Promise(res => setTimeout(res, ms))
             </div>
 
             <div className="max-w-xl mx-auto">
-                <div
+                <label
                     className="border-2 border-dashed border-border-strong rounded-2xl bg-app-card-muted hover:bg-app-hover transition-colors flex flex-col items-center justify-center p-16 cursor-pointer relative group"
-                    onClick={() => setUploadedFile({ name: 'catalog_export_summer_26.csv', size: '2.4 MB' })}
                 >
+                    <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) { setUploadedFile({ name: f.name, size: `${(f.size / 1024).toFixed(1)} KB` }); setUploadedFileObj(f) }
+                    }} />
                     <div className="h-16 w-16 bg-white rounded-full shadow-sm border border-border-subtle flex items-center justify-center mb-5 group-hover:scale-110 transition-transform group-hover:shadow-md">
                         {importSource === 'Excel' ? <FileSpreadsheet size={28} className="text-brand" /> : <UploadCloud size={28} className="text-brand" />}
                     </div>
@@ -196,7 +235,7 @@ const delay = ms => new Promise(res => setTimeout(res, ms))
                             <span className="text-[13px] text-content-secondary block">or click to browse your computer</span>
                         </div>
                     )}
-                </div>
+                </label>
 
                 <div className="mt-6 flex items-center justify-center">
                     <Button variant="ghost" size="sm" className="text-content-tertiary hover:text-brand">

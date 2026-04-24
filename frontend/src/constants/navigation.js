@@ -17,14 +17,14 @@ export const NAV_ITEMS = [
 
 export const SETTINGS_ITEMS = [
   { label: 'Profile', path: '/settings/profile' },
-  { label: 'Team', path: '/settings/team', minRole: 'Merchandiser' },
-  { label: 'Brand', path: '/settings/brand', minRole: 'Designer' },
-  { label: 'Integrations', path: '/settings/integrations', minRole: 'Admin' },
+  { label: 'Team', path: '/settings/team', minRole: 'MERCHANDISER' },
+  { label: 'Brand', path: '/settings/brand', minRole: 'DESIGNER' },
+  { label: 'Integrations', path: '/settings/integrations', minRole: 'ADMIN' },
   {
     label: 'Notifications',
     path: '/settings/notifications',
-    minRole: 'Merchandiser',
+    minRole: 'MERCHANDISER',
   },
-  { label: 'AI', path: '/settings/ai', minRole: 'Admin' },
+  { label: 'AI', path: '/settings/ai', minRole: 'ADMIN' },
 ]
 

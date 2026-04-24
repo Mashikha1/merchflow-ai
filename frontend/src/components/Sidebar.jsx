@@ -3,7 +3,28 @@ import { NAV_ITEMS } from '../constants/navigation'
 import { cn } from '../lib/cn'
 import { Icon } from './Icon'
 import { useUiStore } from '../store/uiStore'
+import { useAuthStore } from '../store/authStore'
 import { HelpCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+
+// Role hierarchy — higher index = more access
+const ROLE_RANK = { VIEWER: 0, DESIGNER: 1, SALES: 2, MERCHANDISER: 3, ADMIN: 4 }
+const ITEM_MIN_ROLE = {
+  // Operations (sales & above)
+  Orders: 'SALES', Quotes: 'SALES', Customers: 'SALES',
+  // Imports & AI (merchandiser+)
+  Imports: 'MERCHANDISER', 'AI Studio': 'MERCHANDISER', 'Media Library': 'DESIGNER',
+  // Catalogs / Showrooms (designer+)
+  Catalogs: 'DESIGNER', Showrooms: 'DESIGNER',
+  // Settings visible to all, but sub-items gated by navigation.js
+}
+
+function hasAccess(itemLabel, userRole) {
+  const minRole = ITEM_MIN_ROLE[itemLabel]
+  if (!minRole) return true
+  const userRank = ROLE_RANK[userRole?.toUpperCase?.()] ?? 4 // default full access if role unknown
+  const minRank = ROLE_RANK[minRole] ?? 0
+  return userRank >= minRank
+}
 
 function NavItem({ item, collapsed }) {
   return (
@@ -43,25 +64,32 @@ function NavItem({ item, collapsed }) {
 export function Sidebar() {
   const collapsed = useUiStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useUiStore((s) => s.toggleSidebar)
+  const user = useAuthStore((s) => s.user)
+  const userRole = user?.role?.toUpperCase?.() || 'ADMIN'
 
-  // Grouping NAV_ITEMS for better organization (simulated categories)
-  const primaryItems = NAV_ITEMS.filter(i => ['Dashboard', 'Products', 'Categories', 'Collections', 'Inventory'].includes(i.label))
-  const marketingItems = NAV_ITEMS.filter(i => ['Catalogs', 'Showrooms', 'AI Studio', 'Media Library'].includes(i.label))
-  const operationsItems = NAV_ITEMS.filter(i => ['Orders', 'Quotes', 'Customers', 'Imports'].includes(i.label))
-  const systemItems = NAV_ITEMS.filter(i => ['Analytics', 'Activity', 'Settings', 'Help'].includes(i.label))
+  // Filter nav items by role
+  const allowed = NAV_ITEMS.filter(i => hasAccess(i.label, userRole))
 
-  const NavSection = ({ label, items }) => (
-    <div className="space-y-1 mb-6">
-      {!collapsed && label && (
-        <div className="px-3 mb-2 text-[11px] font-medium text-content-tertiary uppercase tracking-[0.06em]">
-          {label}
-        </div>
-      )}
-      {items.map((item) => (
-        <NavItem key={item.path} item={item} collapsed={collapsed} />
-      ))}
-    </div>
-  )
+  const primaryItems = allowed.filter(i => ['Dashboard', 'Products', 'Categories', 'Collections', 'Inventory'].includes(i.label))
+  const marketingItems = allowed.filter(i => ['Catalogs', 'Showrooms', 'AI Studio', 'Media Library'].includes(i.label))
+  const operationsItems = allowed.filter(i => ['Orders', 'Quotes', 'Customers', 'Imports'].includes(i.label))
+  const systemItems = allowed.filter(i => ['Analytics', 'Activity', 'Settings', 'Help'].includes(i.label))
+
+  const NavSection = ({ label, items }) => {
+    if (!items.length) return null
+    return (
+      <div className="space-y-1 mb-6">
+        {!collapsed && label && (
+          <div className="px-3 mb-2 text-[11px] font-medium text-content-tertiary uppercase tracking-[0.06em]">
+            {label}
+          </div>
+        )}
+        {items.map((item) => (
+          <NavItem key={item.path} item={item} collapsed={collapsed} />
+        ))}
+      </div>
+    )
+  }
 
   return (
     <aside
@@ -81,6 +109,9 @@ export function Sidebar() {
               <div className="text-[15px] font-semibold tracking-tight text-content-primary truncate">
                 MerchFlow AI
               </div>
+              {user?.role && (
+                <div className="text-[11px] text-content-tertiary mt-0.5 truncate capitalize">{user.role.toLowerCase()}</div>
+              )}
             </div>
           ) : null}
         </div>

@@ -11,6 +11,7 @@ import { UploadDropzone } from '../../components/UploadDropzone'
 import { CompareSlider } from '../../components/CompareSlider'
 import { aiService } from '../../services/aiService'
 import { productService } from '../../services/productService'
+import { api } from '../../lib/api'
 
 const MODEL_PRESETS = [
   {
@@ -50,8 +51,10 @@ export function AITryOnPage() {
   const [personUrl, setPersonUrl] = useState(MODEL_PRESETS[0].url)
   const [consent, setConsent] = useState(true)
   const [quality, setQuality] = useState('hd')
-  const [variations, setVariations] = useState(2)
+  const [variations, setVariations] = useState(1)
+  const [clothesType, setClothesType] = useState('upper_body')
   const [activeJobId, setActiveJobId] = useState(null)
+  const [customModels, setCustomModels] = useState([])
 
   const productsQ = useQuery({
     queryKey: ['products'],
@@ -88,11 +91,12 @@ export function AITryOnPage() {
         inputProductId: selectedProductId,
         garmentUrl,
         personUrl,
+        clothesType,
         meta: { consent, quality, variations },
       })
       setActiveJobId(job.id)
       setStep(4)
-      toast.message('Queued', { description: 'Try‑on job created.' })
+      toast.message('Queued', { description: 'AILabTools virtual try-on started.' })
       qc.invalidateQueries({ queryKey: ['ai', 'jobs'] })
     } catch {
       toast.error('Could not start job')
@@ -101,12 +105,13 @@ export function AITryOnPage() {
 
   const outputs = jobQ.data?.outputs || []
   const primaryOutput = outputs[0]?.url
+  const isDemo = outputs[0]?.demo === true
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Virtual Try‑On"
-        subtitle="Kolors-style workflow: garment image + person image → async job → approvals → save/publish."
+        subtitle="LightX-powered workflow: garment image + person image → async job → approvals → save/publish."
         actions={
           <>
             <Button variant="secondary" onClick={() => navigate('/ai/jobs')}>
@@ -155,12 +160,24 @@ export function AITryOnPage() {
                 accept={{ 'image/*': [] }}
                 maxFiles={1}
                 helper={garmentUrl ? 'Garment image selected' : 'Upload garment image'}
-                onFiles={(files) => {
+                onFiles={async (files) => {
                   const f = files?.[0]
                   if (!f) return
-                  const url = URL.createObjectURL(f)
-                  setGarmentUrl(url)
-                  toast.success('Garment uploaded')
+                  // Show local preview immediately
+                  setGarmentUrl(URL.createObjectURL(f))
+                  // Upload to server so backend gets a real URL
+                  const formData = new FormData()
+                  formData.append('files', f)
+                  try {
+                    const res = await api.post('/media/upload', formData)
+                    if (res?.[0]?.url) {
+                      setGarmentUrl(res[0].url)
+                      toast.success('Garment uploaded')
+                    }
+                  } catch {
+                    toast.error('Upload failed')
+                    setGarmentUrl('')
+                  }
                 }}
               />
 
@@ -169,7 +186,7 @@ export function AITryOnPage() {
                   <div>
                     <div className="text-sm font-semibold">Select from catalog</div>
                     <div className="mt-1 text-sm text-muted">
-                      Picks a product and uses its primary mock image (demo).
+                      Picks a product and uses its primary image.
                     </div>
                   </div>
                   <Button
@@ -191,12 +208,9 @@ export function AITryOnPage() {
                         setSelectedProductId(id)
                         const p = (productsQ.data || []).find((x) => x.id === id)
                         if (p) {
-                          // demo “garment” image: pick a stable unsplash URL by SKU
-                          const demoUrl =
-                            p.id === 'prod_4'
-                              ? 'https://images.unsplash.com/photo-1520975958225-5d5062c5988a?auto=format&fit=crop&q=80&w=900'
-                              : 'https://images.unsplash.com/photo-1520975741975-bc1fe9b23c5c?auto=format&fit=crop&q=80&w=900'
-                          setGarmentUrl(demoUrl)
+                          // Use product's primary image if available
+                          const imgUrl = p.imageUrl || p.images?.[0] || 'https://images.unsplash.com/photo-1520975741975-bc1fe9b23c5c?auto=format&fit=crop&q=80&w=900'
+                          setGarmentUrl(imgUrl)
                           toast.success('Garment selected', { description: p.name })
                         }
                       }}
@@ -267,17 +281,33 @@ export function AITryOnPage() {
                 accept={{ 'image/*': [] }}
                 maxFiles={1}
                 helper="Upload person/model image (requires consent)"
-                onFiles={(files) => {
+                onFiles={async (files) => {
                   const f = files?.[0]
                   if (!f) return
-                  const url = URL.createObjectURL(f)
-                  setPersonUrl(url)
-                  toast.success('Person image uploaded')
+                  const blobUrl = URL.createObjectURL(f)
+                  setPersonUrl(blobUrl)
+                  const formData = new FormData()
+                  formData.append('files', f)
+                  try {
+                    const res = await api.post('/media/upload', formData)
+                    if (res?.[0]?.url) {
+                      const serverUrl = res[0].url
+                      setPersonUrl(serverUrl)
+                      setCustomModels((prev) => [
+                        ...prev,
+                        { id: `custom_${Date.now()}`, name: f.name.replace(/\.[^.]+$/, ''), url: serverUrl, note: 'Your uploaded model' },
+                      ])
+                      toast.success('Person image uploaded & added to models')
+                    }
+                  } catch {
+                    toast.error('Upload failed')
+                    setPersonUrl(MODEL_PRESETS[0].url)
+                  }
                 }}
               />
 
               <div className="grid gap-3 md:grid-cols-3">
-                {MODEL_PRESETS.map((m) => (
+                {[...MODEL_PRESETS, ...customModels].map((m) => (
                   <button
                     key={m.id}
                     onClick={() => setPersonUrl(m.url)}
@@ -335,22 +365,23 @@ export function AITryOnPage() {
             <CardHeader>
               <CardTitle>Generation settings</CardTitle>
               <CardDescription>
-                Keep it simple: quality + number of outputs. (Kolors is image-first.)
+                Powered by AILabTools virtual try-on AI.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="text-xs font-medium text-muted">Quality</label>
+                <label className="text-xs font-medium text-muted">Garment Type</label>
                 <select
-                  value={quality}
-                  onChange={(e) => setQuality(e.target.value)}
+                  value={clothesType}
+                  onChange={(e) => setClothesType(e.target.value)}
                   className="mt-1 h-10 w-full rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-3 text-sm outline-none focus:ring-2 focus:ring-[rgb(var(--ring))] focus:ring-offset-2 focus:ring-offset-[rgb(var(--bg))]"
                 >
-                  <option value="hd">High definition</option>
-                  <option value="standard">Standard (faster)</option>
+                  <option value="upper_body">👕 Upper body (shirt, jacket, top...)</option>
+                  <option value="lower_body">👖 Lower body (pants, skirt, shorts...)</option>
+                  <option value="full_body">👗 Full body (dress, suit, jumpsuit...)</option>
                 </select>
                 <div className="mt-2 text-xs text-muted">
-                  HD yields better fabric edges; Standard is quicker for iteration.
+                  Match this to the garment you selected in Step 1.
                 </div>
               </div>
               <div>
@@ -360,13 +391,17 @@ export function AITryOnPage() {
                   onChange={(e) => setVariations(Number(e.target.value))}
                   className="mt-1 h-10 w-full rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-3 text-sm outline-none focus:ring-2 focus:ring-[rgb(var(--ring))] focus:ring-offset-2 focus:ring-offset-[rgb(var(--bg))]"
                 >
-                  <option value={1}>1</option>
+                  <option value={1}>1 (recommended)</option>
                   <option value={2}>2</option>
-                  <option value={4}>4</option>
                 </select>
                 <div className="mt-2 text-xs text-muted">
-                  Generate multiple variations to quickly approve the best.
+                  Each output uses 1 AILabTools credit (~$0.027).
                 </div>
+              </div>
+              <div className="md:col-span-2 rounded-xl bg-blue-50 border border-blue-200 p-3 text-xs text-blue-800 space-y-1">
+                <div className="font-semibold">💡 For best AI results:</div>
+                <div>• Person: clear full-body front-facing photo, arms visible, simple background</div>
+                <div>• Garment: flat-lay on plain background, single item, no model wearing it</div>
               </div>
             </CardContent>
           </Card>
@@ -410,23 +445,43 @@ export function AITryOnPage() {
                 <div className="lg:col-span-2 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-lg font-semibold">Generating…</div>
+                      <div className="text-lg font-semibold">
+                        {jobQ.data.status?.toLowerCase() === 'completed'
+                          ? '✅ Generated'
+                          : jobQ.data.status?.toLowerCase() === 'failed'
+                          ? '❌ Failed'
+                          : '⏳ Generating…'}
+                      </div>
                       <div className="text-sm text-muted">
                         Job <span className="font-mono text-xs">{activeJobId}</span>
                       </div>
                     </div>
-                    <Badge variant="warning">
+                    <Badge variant={
+                      jobQ.data.status?.toLowerCase() === 'completed' ? 'success'
+                        : jobQ.data.status?.toLowerCase() === 'failed' ? 'danger'
+                        : 'warning'
+                    }>
                       {jobQ.data.status} • {jobQ.data.progress}%
                     </Badge>
                   </div>
                   <div className="h-3 w-full rounded-full bg-[rgb(var(--bg-muted))] overflow-hidden border border-[rgb(var(--border))]">
                     <div
-                      className="h-full bg-[rgb(var(--accent))]"
+                      className={`h-full transition-all duration-500 ${
+                        jobQ.data.status?.toLowerCase() === 'completed'
+                          ? 'bg-emerald-500'
+                          : jobQ.data.status?.toLowerCase() === 'failed'
+                          ? 'bg-red-500'
+                          : 'bg-[rgb(var(--accent))]'
+                      }`}
                       style={{ width: `${jobQ.data.progress || 0}%` }}
                     />
                   </div>
                   <div className="text-sm text-muted">
-                    We’re aligning garment geometry and blending lighting contours (mocked).
+                    {jobQ.data.status?.toLowerCase() === 'completed'
+                      ? 'Your virtual try-on is ready! Click "View results" to see the output.'
+                      : jobQ.data.status?.toLowerCase() === 'failed'
+                      ? `Generation failed: ${jobQ.data.error || 'Unknown error. Try again.'}`
+                      : 'Processing your virtual try-on with LightX AI. This can take up to 60 seconds…'}
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2">
@@ -510,13 +565,40 @@ export function AITryOnPage() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2 space-y-4">
-                <CompareSlider beforeUrl={personUrl} afterUrl={primaryOutput} />
+                {isDemo ? (
+                  <>
+                    <div className="rounded-[var(--radius)] border border-amber-300 bg-amber-50 p-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+                        ⚠️ Demo Mode — AI Try-On Preview
+                      </div>
+                      <div className="mt-1 text-xs text-amber-700">
+                        The LightX AI could not generate a virtual try-on for these images.
+                        For best results, upload a <strong>clear full-body person photo</strong> and
+                        use a <strong>flat-lay garment image</strong> (not a model wearing it).
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden">
+                        <div className="bg-[rgb(var(--bg-muted))] px-3 py-1.5 text-xs font-semibold text-muted">Person / Model</div>
+                        <img src={personUrl} alt="Person" className="w-full aspect-[3/4] object-cover" />
+                      </div>
+                      <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden">
+                        <div className="bg-[rgb(var(--bg-muted))] px-3 py-1.5 text-xs font-semibold text-muted">Garment Selected</div>
+                        <img src={garmentUrl} alt="Garment" className="w-full aspect-[3/4] object-cover" />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <CompareSlider beforeUrl={personUrl} afterUrl={primaryOutput} />
+                )}
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Results</CardTitle>
+                    <CardTitle>{isDemo ? 'Garment Preview' : 'AI Try-On Results'}</CardTitle>
                     <CardDescription>
-                      Approve the best output, favorite it, and save it to Media.
+                      {isDemo
+                        ? 'These are preview images. Upload real person + garment photos for actual AI virtual try-on.'
+                        : 'Approve the best output, favorite it, and save it to Media.'}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -530,30 +612,31 @@ export function AITryOnPage() {
                                 size="sm"
                                 variant={o.favorite ? 'primary' : 'secondary'}
                                 onClick={async () => {
-                                  await aiService.updateOutput({ jobId: activeJobId, outputId: o.id, patch: { favorite: !o.favorite } })
+                                  await aiService.updateOutput(activeJobId, o.id, { favorite: !o.favorite })
                                   toast.success(o.favorite ? 'Unfavorited' : 'Favorited')
                                   jobQ.refetch()
                                   qc.invalidateQueries({ queryKey: ['ai', 'jobs'] })
                                 }}
                               >
-                                {o.favorite ? 'Favorited' : 'Favorite'}
+                                {o.favorite ? '★ Favorited' : '☆ Favorite'}
                               </Button>
                               <Button
                                 size="sm"
                                 variant={o.approved ? 'primary' : 'secondary'}
                                 onClick={async () => {
-                                  await aiService.updateOutput({ jobId: activeJobId, outputId: o.id, patch: { approved: !o.approved } })
+                                  await aiService.updateOutput(activeJobId, o.id, { approved: !o.approved })
                                   toast.success(o.approved ? 'Approval removed' : 'Approved')
                                   jobQ.refetch()
                                   qc.invalidateQueries({ queryKey: ['ai', 'jobs'] })
                                 }}
                               >
-                                {o.approved ? 'Approved' : 'Approve'}
+                                {o.approved ? '✓ Approved' : 'Approve'}
                               </Button>
                               <Button size="sm" variant="ghost" onClick={async () => {
                                 await aiService.updateOutput(activeJobId, o.id, { approved: false, favorite: false })
                                 toast.success('Rejected')
                                 jobQ.refetch()
+                                qc.invalidateQueries({ queryKey: ['ai', 'jobs'] })
                               }}>
                                 Reject
                               </Button>
@@ -582,16 +665,31 @@ export function AITryOnPage() {
                       >
                         Create variations
                       </Button>
-                      <Button onClick={() => toast.success('Saved to media', { description: 'Open Media Library to see it.' })}>
+                      <Button onClick={async () => {
+                        const approved = outputs.filter(o => o.approved || o.favorite)
+                        if (!approved.length) { toast.error('Approve or favorite at least one output first'); return }
+                        for (const o of approved) {
+                          await api.post('/media/upload-url', { url: o.url, name: `tryon_${o.id}.jpg` }).catch(() => {})
+                        }
+                        toast.success(`${approved.length} image(s) saved to Media Library`)
+                      }}>
                         Save to Media Library
                       </Button>
-                      <Button variant="secondary" onClick={() => toast.success('Attached to product')}>
+                      <Button variant="secondary" onClick={() => {
+                        if (!selectedProductId) { toast.error('Select a product first'); return }
+                        const approvedOutput = outputs.find(o => o.approved || o.favorite)
+                        if (approvedOutput) {
+                          api.patch(`/products/${selectedProductId}`, { imageUrl: approvedOutput.url }).then(() => {
+                            toast.success('Image attached to product')
+                          }).catch(() => toast.error('Failed to attach'))
+                        } else { toast.error('Approve or favorite an output first') }
+                      }}>
                         Attach to product
                       </Button>
-                      <Button variant="secondary" onClick={() => toast.success('Added to catalog')}>
+                      <Button variant="secondary" onClick={() => navigate('/catalogs')}>
                         Add to catalog
                       </Button>
-                      <Button variant="secondary" onClick={() => toast.success('Publish to showroom')}>
+                      <Button variant="secondary" onClick={() => navigate('/showrooms')}>
                         Publish to showroom
                       </Button>
                     </div>

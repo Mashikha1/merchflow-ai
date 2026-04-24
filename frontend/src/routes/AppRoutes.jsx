@@ -39,6 +39,9 @@ import { CatalogSetupPage } from '../pages/catalogs/CatalogSetupPage'
 import { CatalogDetailPage } from '../pages/catalogs/CatalogDetailPage'
 import { CatalogBuilderPage } from '../pages/catalogs/CatalogBuilderPage'
 
+import { LookbooksPage } from '../pages/lookbooks/LookbooksPage'
+import { LookbookBuilderPage } from '../pages/lookbooks/LookbookBuilderPage'
+
 import { ShowroomsPage } from '../pages/showrooms/ShowroomsPage'
 import { ShowroomNewPage } from '../pages/showrooms/ShowroomNewPage'
 import { ShowroomDetailPage } from '../pages/showrooms/ShowroomDetailPage'
@@ -71,6 +74,22 @@ import { BuyerRequestQuotePage } from '../pages/buyer/BuyerRequestQuotePage'
 function RequireAuth({ children }) {
   const status = useAuthStore((s) => s.status)
   if (status !== 'authenticated') return <Navigate to="/login" replace />
+  return children
+}
+
+export function RequireRole({ roles, children }) {
+  const user = useAuthStore((s) => s.user)
+  if (!user || !roles.includes(user.role)) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center space-y-3">
+          <div className="text-4xl">🔒</div>
+          <h2 className="text-lg font-semibold text-content-primary">Access Restricted</h2>
+          <p className="text-sm text-content-secondary">You don't have permission to view this page.</p>
+        </div>
+      </div>
+    )
+  }
   return children
 }
 
@@ -127,10 +146,7 @@ export function AppRoutes() {
         <Route path="/ai/descriptions" element={<AIDescriptionsPage />} />
         <Route path="/ai/attributes" element={<AIAttributesPage />} />
         <Route path="/ai/backgrounds" element={<AIBackgroundsPage />} />
-        <Route
-          path="/ai/lookbook-assistant"
-          element={<AILookbookAssistantPage />}
-        />
+        <Route path="/ai/lookbook-assistant" element={<AILookbookAssistantPage />} />
         <Route path="/ai/jobs" element={<AIJobsPage />} />
 
         <Route path="/catalogs" element={<CatalogsPage />} />
@@ -139,6 +155,9 @@ export function AppRoutes() {
         <Route path="/catalogs/:id" element={<CatalogDetailPage />} />
         <Route path="/catalogs/:id/builder" element={<CatalogBuilderPage />} />
 
+        <Route path="/lookbooks" element={<LookbooksPage />} />
+        <Route path="/lookbooks/:id/builder" element={<LookbookBuilderPage />} />
+
         <Route path="/showrooms" element={<ShowroomsPage />} />
         <Route path="/showrooms/new" element={<ShowroomNewPage />} />
         <Route path="/showrooms/:id" element={<ShowroomDetailPage />} />
@@ -146,42 +165,34 @@ export function AppRoutes() {
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/quotes/new" element={<QuoteCreatePage />} />
+        <Route path="/quotes/:id/edit" element={<QuoteCreatePage />} />
         <Route path="/customers" element={<CustomersPage />} />
 
         <Route path="/settings/profile" element={<SettingsProfilePage />} />
         <Route path="/settings/team" element={<SettingsTeamPage />} />
         <Route path="/settings/brand" element={<SettingsBrandPage />} />
-        <Route
-          path="/settings/integrations"
-          element={<SettingsIntegrationsPage />}
-        />
-        <Route
-          path="/settings/notifications"
-          element={<SettingsNotificationsPage />}
-        />
+        <Route path="/settings/integrations" element={<SettingsIntegrationsPage />} />
+        <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
         <Route path="/settings/ai" element={<SettingsAIPage />} />
-
       </Route>
 
+      {/* Public showroom routes — no auth required */}
       <Route path="/s/:slug" element={<PublicShowroomPage />} />
       <Route path="/s/:slug/products/:id" element={<PublicShowroomProductPage />} />
       <Route path="/s/:slug/wishlist" element={<PublicShowroomWishlistPage />} />
-      <Route
-        path="/s/:slug/request-quote"
-        element={<PublicShowroomRequestQuotePage />}
-      />
-      <Route
-        path="/s/:slug/request-sample"
-        element={<PublicShowroomRequestSamplePage />}
-      />
-      {/* Buyer-facing experience (clean, catalog-forward UI) */}
-      <Route path="/buyer/home" element={<BuyerHomePage />} />
-      <Route path="/buyer/catalogs" element={<BuyerCatalogsPage />} />
-      <Route path="/buyer/catalogs/:id" element={<BuyerCatalogDetailPage />} />
-      <Route path="/buyer/showrooms" element={<BuyerShowroomsPage />} />
-      <Route path="/buyer/showrooms/:id" element={<BuyerShowroomDetailPage />} />
-      <Route path="/buyer/wishlist" element={<BuyerWishlistPage />} />
-      <Route path="/buyer/request-quote" element={<BuyerRequestQuotePage />} />
+      <Route path="/s/:slug/request-quote" element={<PublicShowroomRequestQuotePage />} />
+      <Route path="/s/:slug/request-sample" element={<PublicShowroomRequestSamplePage />} />
+
+      {/* Buyer portal — requires auth */}
+      <Route element={<RequireAuth><AppShell /></RequireAuth>}>
+        <Route path="/buyer/home" element={<BuyerHomePage />} />
+        <Route path="/buyer/catalogs" element={<BuyerCatalogsPage />} />
+        <Route path="/buyer/catalogs/:id" element={<BuyerCatalogDetailPage />} />
+        <Route path="/buyer/showrooms" element={<BuyerShowroomsPage />} />
+        <Route path="/buyer/showrooms/:id" element={<BuyerShowroomDetailPage />} />
+        <Route path="/buyer/wishlist" element={<BuyerWishlistPage />} />
+        <Route path="/buyer/request-quote" element={<BuyerRequestQuotePage />} />
+      </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

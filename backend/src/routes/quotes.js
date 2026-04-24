@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import prisma from '../prisma.js'
 import { requireAuth } from '../middleware/auth.js'
+import { sendMail, quoteEmailHtml } from '../lib/mailer.js'
+import { createNotification } from './notifications.js'
 
 const router = Router()
 router.use(requireAuth)
@@ -12,14 +14,13 @@ function computeTotals(items = []) {
     return { subtotal, discount, tax: 0, total }
 }
 
-// Auto-expire helper
 async function autoExpire(quote) {
     if (
         quote.expiryDate &&
         new Date(quote.expiryDate) < new Date() &&
         !['EXPIRED', 'CONVERTED_TO_ORDER'].includes(quote.status)
     ) {
-        const updated = await prisma.quote.update({
+        return await prisma.quote.update({
             where: { id: quote.id },
             data: {
                 status: 'EXPIRED',
@@ -27,9 +28,17 @@ async function autoExpire(quote) {
             },
             include: { items: true, history: true, customer: true, assignedTo: true }
         })
-        return updated
     }
     return quote
+}
+
+async function getBrandSettings(userId) {
+    if (!userId) return {}
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { brandName: true, brandColor: true, brandEmail: true }
+    })
+    return user || {}
 }
 
 // GET /api/quotes
@@ -38,7 +47,7 @@ router.get('/', async (req, res, next) => {
         const { status, search, archived } = req.query
         let quotes = await prisma.quote.findMany({
             where: {
-                archived: archived === 'true' ? true : false,
+                archived: archived === 'true',
                 ...(status && { status: status.toUpperCase() }),
                 ...(search && {
                     OR: [
@@ -46,12 +55,15 @@ router.get('/', async (req, res, next) => {
                         { buyerCompany: { contains: search, mode: 'insensitive' } },
                         { id: { contains: search, mode: 'insensitive' } }
                     ]
-                })
+                }),
+                OR: [
+                    { createdById: req.user.id },
+                    { assignedToId: req.user.id }
+                ]
             },
             include: { items: true, history: { orderBy: { at: 'asc' } }, customer: true, assignedTo: { select: { id: true, name: true } } },
             orderBy: { updatedAt: 'desc' }
         })
-        // Auto-expire in background
         quotes = await Promise.all(quotes.map(autoExpire))
         res.json(quotes.map(q => ({ ...q, totals: computeTotals(q.items) })))
     } catch (err) { next(err) }
@@ -60,11 +72,12 @@ router.get('/', async (req, res, next) => {
 // GET /api/quotes/:id
 router.get('/:id', async (req, res, next) => {
     try {
+        if (req.params.id === 'buyers') return next() // handled below
         let quote = await prisma.quote.findUnique({
             where: { id: req.params.id },
             include: { items: { include: { product: true } }, history: { orderBy: { at: 'asc' } }, customer: true, assignedTo: { select: { id: true, name: true } } }
         })
-        if (!quote) return res.status(404).json({ error: 'Quote not found' })
+        if (!quote || (quote.createdById !== req.user.id && quote.assignedToId !== req.user.id && quote.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
         quote = await autoExpire(quote)
         res.json({ ...quote, totals: computeTotals(quote.items) })
     } catch (err) { next(err) }
@@ -84,11 +97,12 @@ router.post('/', async (req, res, next) => {
                 expiryDate: expiryDate ? new Date(expiryDate) : new Date(Date.now() + 14 * 86400000),
                 assignedToId, customerId, internalNotes,
                 items: { create: items.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct || 0, productId: i.productId })) },
-                history: { create: { by: req.user.name, action: 'Created draft' } }
+                history: { create: { by: req.user.name, action: 'Created draft' } },
+                createdById: req.user.id
             },
             include: { items: true, history: true, customer: true }
         })
-        res.status(201).json(quote)
+        res.status(201).json({ ...quote, totals: computeTotals(quote.items) })
     } catch (err) { next(err) }
 })
 
@@ -96,6 +110,9 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
     try {
         const { items, status, internalNotes, expiryDate, assignedToId } = req.body
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
             data: {
@@ -106,7 +123,7 @@ router.put('/:id', async (req, res, next) => {
                 ...(items && {
                     items: { deleteMany: {}, create: items.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct || 0, productId: i.productId })) }
                 }),
-                history: { create: { by: req.user.name, action: `Updated ${status ? '– status: ' + status : ''}` } }
+                history: { create: { by: req.user.name, action: `Updated${status ? ' — status: ' + status : ''}` } }
             },
             include: { items: true, history: { orderBy: { at: 'asc' } }, customer: true }
         })
@@ -114,14 +131,35 @@ router.put('/:id', async (req, res, next) => {
     } catch (err) { next(err) }
 })
 
-// POST /api/quotes/:id/send
+// POST /api/quotes/:id/send — send quote via email
 router.post('/:id/send', async (req, res, next) => {
     try {
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
             data: { status: 'SENT', history: { create: { by: req.user.name, action: 'Sent to buyer' } } },
-            include: { items: true, history: true }
+            include: { items: true, history: true, customer: true }
         })
+
+        const brand = await getBrandSettings(req.user.id)
+
+        // Send real email
+        sendMail({
+            to: quote.buyerEmail,
+            subject: `Quote from ${brand.brandName || 'MerchFlow AI'} — ${quote.id}`,
+            html: quoteEmailHtml({ quote, brandName: brand.brandName, brandColor: brand.brandColor })
+        }).catch(err => console.error('[Quote Email]', err.message))
+
+        // Notify the sender
+        await createNotification(req.user.id, {
+            type: 'quote_sent',
+            title: `Quote sent to ${quote.buyerName}`,
+            body: `${quote.buyerCompany} — ${quote.id}`,
+            link: `/quotes`
+        })
+
         res.json({ ...quote, totals: computeTotals(quote.items) })
     } catch (err) { next(err) }
 })
@@ -129,11 +167,23 @@ router.post('/:id/send', async (req, res, next) => {
 // POST /api/quotes/:id/approve
 router.post('/:id/approve', async (req, res, next) => {
     try {
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
             data: { status: 'APPROVED', history: { create: { by: req.user.name, action: 'Approved' } } },
             include: { items: true, history: true }
         })
+
+        // Send confirmation to buyer
+        const brand = await getBrandSettings(req.user.id)
+        sendMail({
+            to: quote.buyerEmail,
+            subject: `Quote Approved — ${quote.id}`,
+            html: `<p>Hi ${quote.buyerName}, your quote #${quote.id} has been approved by ${brand.brandName || 'our team'}. We'll be in touch shortly.</p>`
+        }).catch(err => console.error('[Approve Email]', err.message))
+
         res.json({ ...quote, totals: computeTotals(quote.items) })
     } catch (err) { next(err) }
 })
@@ -141,6 +191,9 @@ router.post('/:id/approve', async (req, res, next) => {
 // POST /api/quotes/:id/convert
 router.post('/:id/convert', async (req, res, next) => {
     try {
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
             data: { status: 'CONVERTED_TO_ORDER', history: { create: { by: req.user.name, action: 'Converted to order' } } },
@@ -154,7 +207,7 @@ router.post('/:id/convert', async (req, res, next) => {
 router.post('/:id/duplicate', async (req, res, next) => {
     try {
         const orig = await prisma.quote.findUnique({ where: { id: req.params.id }, include: { items: true } })
-        if (!orig) return res.status(404).json({ error: 'Quote not found' })
+        if (!orig || (orig.createdById !== req.user.id && orig.assignedToId !== req.user.id && orig.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
         const copy = await prisma.quote.create({
             data: {
                 buyerName: orig.buyerName, buyerCompany: orig.buyerCompany, buyerEmail: orig.buyerEmail,
@@ -170,9 +223,68 @@ router.post('/:id/duplicate', async (req, res, next) => {
     } catch (err) { next(err) }
 })
 
+// PATCH /api/quotes/:id — partial update (status, assignedToId, internalNotes)
+router.patch('/:id', async (req, res, next) => {
+    try {
+        const { status, assignedToId, internalNotes } = req.body
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
+        const quote = await prisma.quote.update({
+            where: { id: req.params.id },
+            data: {
+                ...(status && { status: status.toUpperCase().replace(/ /g, '_') }),
+                ...(assignedToId !== undefined && { assignedToId }),
+                ...(internalNotes !== undefined && { internalNotes }),
+                history: {
+                    create: {
+                        by: req.user.name,
+                        action: status ? `Status changed to ${status.replace(/_/g, ' ')}` : 'Updated'
+                    }
+                }
+            },
+            include: { items: true, history: { orderBy: { at: 'desc' } }, customer: true, assignedTo: { select: { id: true, name: true } } }
+        })
+        res.json({ ...quote, totals: computeTotals(quote.items) })
+    } catch (err) { next(err) }
+})
+
+// POST /api/quotes/:id/notes — add internal note to audit trail
+router.post('/:id/notes', async (req, res, next) => {
+    try {
+        const { note, user: byName } = req.body
+        if (!note?.trim()) return res.status(400).json({ error: 'note is required' })
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
+        const entry = await prisma.quoteHistory.create({
+            data: {
+                quoteId: req.params.id,
+                by: byName || req.user.name,
+                action: `Note: ${note.trim()}`
+            }
+        })
+        res.status(201).json(entry)
+    } catch (err) { next(err) }
+})
+
+// DELETE /api/quotes/:id — hard delete a quote
+router.delete('/:id', async (req, res, next) => {
+    try {
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
+        await prisma.quote.delete({ where: { id: req.params.id } })
+        res.json({ success: true })
+    } catch (err) { next(err) }
+})
+
 // PATCH /api/quotes/:id/archive
 router.patch('/:id/archive', async (req, res, next) => {
     try {
+        const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
         await prisma.quote.update({ where: { id: req.params.id }, data: { archived: true } })
         res.json({ success: true })
     } catch (err) { next(err) }
@@ -182,11 +294,44 @@ router.patch('/:id/archive', async (req, res, next) => {
 router.get('/buyers/list', async (req, res, next) => {
     try {
         const buyers = await prisma.customer.findMany({
-            where: { archived: false },
-            select: { id: true, name: true, company: true, email: true, country: true },
+            where: { archived: false, createdById: req.user.id },
+            select: { id: true, name: true, company: true, email: true, country: true, phone: true },
             orderBy: { name: 'asc' }
         })
         res.json(buyers)
+    } catch (err) { next(err) }
+})
+
+// GET /api/quotes/:id/pdf — generate PDF
+router.get('/:id/pdf', async (req, res, next) => {
+    try {
+        const quote = await prisma.quote.findUnique({
+            where: { id: req.params.id },
+            include: { items: true, customer: true }
+        })
+        if (!quote || (quote.createdById !== req.user.id && quote.assignedToId !== req.user.id && quote.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+
+        const brand = await getBrandSettings(req.user.id)
+        const { quoteEmailHtml: htmlFn } = await import('../lib/mailer.js')
+        const html = htmlFn({ quote, brandName: brand.brandName, brandColor: brand.brandColor })
+
+        try {
+            const { default: puppeteer } = await import('puppeteer')
+            const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] })
+            const page = await browser.newPage()
+            await page.setContent(html, { waitUntil: 'networkidle0' })
+            const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' } })
+            await browser.close()
+
+            res.setHeader('Content-Type', 'application/pdf')
+            res.setHeader('Content-Disposition', `attachment; filename="quote-${quote.id}.pdf"`)
+            res.send(pdf)
+        } catch (puppErr) {
+            // Fallback: return HTML as download if puppeteer fails
+            res.setHeader('Content-Type', 'text/html')
+            res.setHeader('Content-Disposition', `attachment; filename="quote-${quote.id}.html"`)
+            res.send(html)
+        }
     } catch (err) { next(err) }
 })
 

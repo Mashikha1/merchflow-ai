@@ -46,13 +46,14 @@ function normalizeObject(obj) {
 // ─── Request helper ────────────────────────────────────────────────────────────
 async function request(method, path, body) {
     const token = getToken()
-    const headers = { 'Content-Type': 'application/json' }
+    const isFormData = body instanceof FormData
+    const headers = isFormData ? {} : { 'Content-Type': 'application/json' }
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     const res = await fetch(`${BASE_URL}${path}`, {
         method,
         headers,
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+        ...(body !== undefined ? { body: isFormData ? body : JSON.stringify(body) } : {})
     })
 
     if (!res.ok) {
@@ -87,4 +88,20 @@ export const api = {
     put: (path, body) => request('PUT', path, body),
     patch: (path, body) => request('PATCH', path, body),
     delete: (path) => request('DELETE', path),
+}
+
+// Default export: callable shorthand — api('/path') → GET, api('/path', { method, body }) → custom
+export default function apiFetch(path, options = {}) {
+    const method = (options.method || 'GET').toUpperCase()
+    let body
+    if (options.body) {
+        try { body = JSON.parse(options.body) } catch { body = options.body }
+    }
+    switch (method) {
+        case 'POST': return api.post(path, body)
+        case 'PUT': return api.put(path, body)
+        case 'PATCH': return api.patch(path, body)
+        case 'DELETE': return api.delete(path)
+        default: return api.get(path)
+    }
 }

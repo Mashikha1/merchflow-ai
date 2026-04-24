@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PageHeader } from '../../components/PageHeader'
@@ -18,6 +19,7 @@ function statusVariant(status) {
 
 export function AIJobsPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const jobsQ = useQuery({
     queryKey: ['ai', 'jobs'],
     queryFn: aiService.listJobs,
@@ -47,7 +49,7 @@ export function AIJobsPage() {
       {jobsQ.isError ? (
         <ErrorState
           title="Couldn’t load jobs"
-          description="Mock service error. Try again."
+          description="Check your connection and try again."
           onRetry={() => jobsQ.refetch()}
         />
       ) : (
@@ -129,11 +131,7 @@ export function AIJobsPage() {
                             {j.status === 'completed' ? (
                               <Button
                                 size="sm"
-                                onClick={() => {
-                                  toast.message('Open results', {
-                                    description: 'Use Try‑On page to view/approve outputs (demo).',
-                                  })
-                                }}
+                                onClick={() => navigate('/ai/try-on')}
                               >
                                 Open
                               </Button>

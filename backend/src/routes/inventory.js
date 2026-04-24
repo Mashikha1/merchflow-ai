@@ -9,6 +9,9 @@ router.use(requireAuth)
 router.get('/', async (req, res, next) => {
     try {
         const items = await prisma.inventoryItem.findMany({
+            where: {
+                product: { createdById: req.user.id }
+            },
             include: { product: { select: { id: true, sku: true, name: true, status: true } } },
             orderBy: { updatedAt: 'desc' }
         })

@@ -8,20 +8,35 @@ datasource db {
 }
 
 model User {
-  id         String         @id @default(uuid())
-  email      String         @unique
-  password   String
-  name       String
-  role       Role           @default(VIEWER)
-  title      String?
-  phone      String?
-  avatarUrl  String?
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
-  aiJobs     AIJob[]
-  notes      CustomerNote[]
-  imports    Import[]
-  quotes     Quote[]
+  id             String         @id @default(uuid())
+  email          String         @unique
+  password       String
+  name           String
+  role           Role           @default(VIEWER)
+  title          String?
+  phone          String?
+  avatarUrl      String?
+  brandName      String?
+  brandLogo      String?
+  brandColor     String?
+  brandEmail     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  aiJobs         AIJob[]
+  notes          CustomerNote[] @relation("CustomerNoteCreator")
+  imports        Import[]
+  quotesAssigned Quote[]        @relation("QuoteAssignee")
+  quotesCreated  Quote[]        @relation("QuoteCreator")
+  notifications  Notification[]
+  wishlistItems  WishlistItem[]
+  media          Media[]
+
+  productsCreated    Product[]    @relation("ProductCreator")
+  categoriesCreated  Category[]   @relation("CategoryCreator")
+  collectionsCreated Collection[] @relation("CollectionCreator")
+  customersCreated   Customer[]   @relation("CustomerCreator")
+  catalogsCreated    Catalog[]    @relation("CatalogCreator")
+  showroomsCreated   Showroom[]   @relation("ShowroomCreator")
 
   @@map("users")
 }
@@ -40,27 +55,53 @@ model Product {
   images         String[]
   tags           String[]
   aiAssets       Int             @default(0)
+  createdById    String?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   aiJobs         AIJob[]
   inventoryItems InventoryItem[]
+  variants       Variant[]
   category       Category?       @relation(fields: [categoryId], references: [id])
   collection     Collection?     @relation(fields: [collectionId], references: [id])
+  createdBy      User?           @relation("ProductCreator", fields: [createdById], references: [id])
   quoteItems     QuoteItem[]
+  wishlistItems  WishlistItem[]
 
   @@map("products")
 }
 
+model Variant {
+  id        String   @id @default(uuid())
+  productId String
+  sku       String   @unique
+  color     String?
+  size      String?
+  material  String?
+  stock     Int      @default(0)
+  price     Decimal? @db.Decimal(10, 2)
+  images    String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("variants")
+}
+
 model Category {
-  id          String    @id @default(uuid())
+  id          String     @id @default(uuid())
   name        String
-  slug        String    @unique
+  slug        String     @unique
   description String?
-  status      String    @default("Active")
-  aiEnabled   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  status      String     @default("Active")
+  aiEnabled   Boolean    @default(false)
+  parentId    String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   products    Product[]
+  parent      Category?  @relation("SubCategories", fields: [parentId], references: [id])
+  children    Category[] @relation("SubCategories")
+  createdBy   User?      @relation("CategoryCreator", fields: [createdById], references: [id])
 
   @@map("categories")
 }
@@ -72,9 +113,11 @@ model Collection {
   type        String    @default("manual")
   layout      String    @default("grid")
   status      String    @default("Draft")
+  createdById String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   products    Product[]
+  createdBy   User?     @relation("CollectionCreator", fields: [createdById], references: [id])
 
   @@map("collections")
 }
@@ -114,11 +157,13 @@ model Customer {
   lifetimeValue        Decimal            @default(0) @db.Decimal(12, 2)
   ordersPlaced         Int                @default(0)
   lastActivityAt       DateTime           @default(now())
+  createdById          String?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   notes                CustomerNote[]
   reminders            CustomerReminder[]
   quotes               Quote[]
+  createdBy            User?              @relation("CustomerCreator", fields: [createdById], references: [id])
 
   @@map("customers")
 }
@@ -130,7 +175,7 @@ model CustomerNote {
   body       String
   createdAt  DateTime @default(now())
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  user       User?    @relation(fields: [userId], references: [id])
+  user       User?    @relation("CustomerNoteCreator", fields: [userId], references: [id])
 
   @@map("customer_notes")
 }
@@ -149,6 +194,7 @@ model CustomerReminder {
 
 model Quote {
   id            String         @id @default(cuid())
+  number        Int            @default(autoincrement())
   customerId    String?
   buyerName     String
   buyerCompany  String
@@ -161,13 +207,15 @@ model Quote {
   status        QuoteStatus    @default(DRAFT)
   expiryDate    DateTime?
   assignedToId  String?
+  createdById   String?
   internalNotes String?
   archived      Boolean        @default(false)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   history       QuoteHistory[]
   items         QuoteItem[]
-  assignedTo    User?          @relation(fields: [assignedToId], references: [id])
+  assignedTo    User?          @relation("QuoteAssignee", fields: [assignedToId], references: [id])
+  createdBy     User?          @relation("QuoteCreator", fields: [createdById], references: [id])
   customer      Customer?      @relation(fields: [customerId], references: [id])
 
   @@map("quotes")
@@ -211,22 +259,27 @@ model Catalog {
   items       Json     @default("[]")
   sections    Json     @default("[]")
   toggles     Json     @default("{}")
+  createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  createdBy   User?    @relation("CatalogCreator", fields: [createdById], references: [id])
 
   @@map("catalogs")
 }
 
 model Showroom {
-  id          String   @id @default(uuid())
+  id          String     @id @default(uuid())
   name        String
-  slug        String   @unique
+  slug        String     @unique
   description String?
-  status      String   @default("Draft")
+  status      String     @default("Draft")
   coverImage  String?
-  settings    Json     @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  settings    Json       @default("{}")
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  pageViews   PageView[]
+  createdBy   User?      @relation("ShowroomCreator", fields: [createdById], references: [id])
 
   @@map("showrooms")
 }
@@ -255,14 +308,17 @@ model AIJob {
 }
 
 model Media {
-  id        String   @id @default(uuid())
-  filename  String
-  url       String
-  mimeType  String
-  size      Int
-  alt       String?
-  tags      String[]
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  filename    String
+  url         String
+  mimeType    String
+  size        Int
+  alt         String?
+  tags        String[]
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  createdBy User? @relation(fields: [createdById], references: [id])
 
   @@map("media")
 }
@@ -282,6 +338,58 @@ model Import {
   createdBy   User?    @relation(fields: [createdById], references: [id])
 
   @@map("imports")
+}
+
+model PageView {
+  id         String    @id @default(uuid())
+  entity     String // "showroom" | "catalog" | "product"
+  entityId   String
+  showroomId String?
+  visitorId  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  showroom   Showroom? @relation(fields: [showroomId], references: [id], onDelete: SetNull)
+
+  @@map("page_views")
+}
+
+model Invitation {
+  id        String    @id @default(uuid())
+  email     String
+  role      Role      @default(VIEWER)
+  token     String    @unique @default(uuid())
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("invitations")
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String?
+  readAt    DateTime?
+  link      String?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String?
+  productId String
+  sessionId String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("wishlist_items")
 }
 
 enum Role {

@@ -11,6 +11,7 @@ router.get('/', async (req, res, next) => {
         const { search, status, categoryId, collectionId } = req.query
         const products = await prisma.product.findMany({
             where: {
+                createdById: req.user.id,
                 ...(search && {
                     OR: [
                         { name: { contains: search, mode: 'insensitive' } },
@@ -35,7 +36,7 @@ router.get('/:id', async (req, res, next) => {
             where: { id: req.params.id },
             include: { category: true, collection: true, inventoryItems: true }
         })
-        if (!product) return res.status(404).json({ error: 'Product not found' })
+        if (!product || (product.createdById && product.createdById !== req.user.id)) return res.status(404).json({ error: 'Product not found' })
         res.json(product)
     } catch (err) { next(err) }
 })
@@ -51,7 +52,8 @@ router.post('/', async (req, res, next) => {
                 sku, name, description, categoryId, collectionId,
                 price: price || 0, cost, stock: stock || 0,
                 status: status?.toUpperCase() || 'DRAFT',
-                images: images || [], tags: tags || []
+                images: images || [], tags: tags || [],
+                createdById: req.user.id
             },
             include: { category: true, collection: true }
         })
@@ -64,6 +66,9 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
     try {
         const { sku, name, description, categoryId, collectionId, price, cost, stock, status, images, tags } = req.body
+        const existing = await prisma.product.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Product not found' })
+
         const product = await prisma.product.update({
             where: { id: req.params.id },
             data: {
@@ -87,6 +92,9 @@ router.put('/:id', async (req, res, next) => {
 // DELETE /api/products/:id
 router.delete('/:id', async (req, res, next) => {
     try {
+        const existing = await prisma.product.findUnique({ where: { id: req.params.id } })
+        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Product not found' })
+
         await prisma.product.delete({ where: { id: req.params.id } })
         res.json({ success: true })
     } catch (err) { next(err) }
@@ -97,7 +105,15 @@ router.post('/bulk-delete', async (req, res, next) => {
     try {
         const { ids } = req.body
         if (!ids?.length) return res.status(400).json({ error: 'ids required' })
-        await prisma.product.deleteMany({ where: { id: { in: ids } } })
+        
+        // Ensure we only delete ones the user owns (or legacy null ones if needed)
+        // For bulk, let's just use a condition
+        await prisma.product.deleteMany({ 
+            where: { 
+                id: { in: ids },
+                OR: [{ createdById: req.user.id }, { createdById: null }]
+            } 
+        })
         res.json({ success: true, deleted: ids.length })
     } catch (err) { next(err) }
 })
@@ -108,7 +124,10 @@ router.patch('/bulk-status', async (req, res, next) => {
         const { ids, status } = req.body
         if (!ids?.length || !status) return res.status(400).json({ error: 'ids and status required' })
         await prisma.product.updateMany({
-            where: { id: { in: ids } },
+            where: { 
+                id: { in: ids },
+                OR: [{ createdById: req.user.id }, { createdById: null }]
+            },
             data: { status: status.toUpperCase() }
         })
         res.json({ success: true })

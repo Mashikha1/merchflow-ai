@@ -11,8 +11,10 @@ import { cn } from '../lib/cn'
 import {
   Search, Folder, Image as ImageIcon, UploadCloud, Filter,
   MoreVertical, Sparkles, X, FileImage, FileText, XCircle, Tag, CheckCircle2,
-  Palette
+  Palette, RefreshCw
 } from 'lucide-react'
+
+const delay = (ms) => new Promise(r => setTimeout(r, ms))
 
 // Base data removed
 
@@ -24,16 +26,6 @@ const DEFAULT_FOLDERS = [
 ]
 
 export function MediaLibraryPage() {
-  const [localMedia, setLocalMedia] = useState(() => {
-    try {
-      const stored = localStorage.getItem('merchflow_media')
-      return stored ? JSON.parse(stored) : []
-    } catch (err) {
-      console.error(err)
-      return []
-    }
-  })
-
   const [folders, setFolders] = useState(() => {
     try {
       const stored = localStorage.getItem('merchflow_media_folders')
@@ -74,30 +66,36 @@ export function MediaLibraryPage() {
   const [metaProduct, setMetaProduct] = useState('')
   const [metaTags, setMetaTags] = useState('')
   const [metaIsAi, setMetaIsAi] = useState(false)
+  const [openMenuId, setOpenMenuId] = useState(null)
+  const [previewMedia, setPreviewMedia] = useState(null)
 
   const queryClient = useQueryClient()
+
+  const handleDeleteMedia = async (id) => {
+    try {
+      await api.delete(`/media/${id}`)
+      queryClient.invalidateQueries({ queryKey: ['media'] })
+      toast.success('Media deleted successfully')
+    } catch (err) {
+      toast.error('Failed to delete media')
+    } finally {
+      setOpenMenuId(null)
+    }
+  }
 
   const { data: apiMedia = [], isLoading, refetch } = useQuery({
     queryKey: ['media'],
     queryFn: async () => {
-      try {
-        const dbMedia = await api.get('/media')
-        return [...localMedia, ...dbMedia.map(m => ({
-          id: m.id, url: m.url, name: m.filename,
-          size: `${(m.size / 1024 / 1024).toFixed(1)} MB`,
-          isAi: (m.tags || []).includes('ai'), folder: m.folder || 'Product Original'
-        }))]
-      } catch {
-        return localMedia
-      }
+      const dbMedia = await api.get('/media')
+      return dbMedia.map(m => ({
+        id: m.id, url: m.url, name: m.filename,
+        size: `${(m.size / 1024 / 1024).toFixed(1)} MB`,
+        isAi: (m.tags || []).includes('ai'), folder: m.folder || 'Product Original'
+      }))
     }
   })
 
   const media = apiMedia
-
-  useEffect(() => {
-    if (localMedia.length > 0) refetch()
-  }, [localMedia, refetch])
 
   const handleFileClick = () => {
     fileInputRef.current?.click()
@@ -178,18 +176,7 @@ export function MediaLibraryPage() {
 
       if (!res.ok) throw new Error('Upload failed')
 
-      // Also save locally for immediate display
-      const newUploads = selectedFiles.map(f => ({
-        id: `f_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        url: f.url || '',
-        name: f.name, size: f.size, isAi: metaIsAi,
-        folder: metaFolder !== 'All Media' ? metaFolder : 'Product Original',
-      }))
-      const combined = [...newUploads, ...localMedia]
-      setLocalMedia(combined)
-      try { localStorage.setItem('merchflow_media', JSON.stringify(combined)) } catch {}
-
-      // Invalidate query to refetch
+      // Invalidate query to refetch from server
       queryClient.invalidateQueries({ queryKey: ['media'] })
 
       toast.success(`Successfully uploaded ${selectedFiles.length} file(s)`)
@@ -356,11 +343,12 @@ export function MediaLibraryPage() {
                 {displayMedia.map(file => (
                   <div key={file.id} className="group relative rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm hover:border-brand-soft hover:shadow-md transition-all animate-in fade-in duration-300">
                     <div className="aspect-square bg-gray-100 relative">
-                      {file.url && file.url.startsWith('blob:') ? (
-                        <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
-                      )}
+                      {file.url ? (
+                        <img src={file.url} alt={file.name} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling && (e.target.nextSibling.style.display = 'flex') }} />
+                      ) : null}
+                      <div className={`w-full h-full items-center justify-center ${file.url ? 'hidden' : 'flex'}`}>
+                        <FileImage size={32} className="text-gray-400" />
+                      </div>
 
                       {file.isAi && (
                         <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-brand text-white rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
@@ -368,14 +356,42 @@ export function MediaLibraryPage() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <Button size="sm" variant="secondary" className="h-8 text-xs font-bold border-none text-content-primary">Preview</Button>
+                        <Button
+                           size="sm"
+                           variant="secondary"
+                           className="h-8 text-xs font-bold border-none text-content-primary"
+                           onClick={(e) => { e.stopPropagation(); setPreviewMedia(file) }}
+                         >Preview</Button>
                       </div>
                     </div>
                     <div className="p-3">
                       <p className="text-[13px] font-bold text-content-primary truncate">{file.name}</p>
                       <div className="flex items-center justify-between text-xs text-content-tertiary font-medium mt-1">
                         <span>{file.size}</span>
-                        <button className="hover:text-content-primary"><MoreVertical size={14} /></button>
+                        <div className="relative">
+                          <button 
+                            className="hover:text-content-primary p-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(openMenuId === file.id ? null : file.id);
+                            }}
+                          >
+                            <MoreVertical size={14} />
+                          </button>
+                          {openMenuId === file.id && (
+                            <div className="absolute right-0 bottom-full mb-1 w-32 bg-white border border-gray-200 shadow-lg rounded-md overflow-hidden z-10">
+                              <button 
+                                className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteMedia(file.id);
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -640,6 +656,37 @@ export function MediaLibraryPage() {
           )}
         </div>
       </div>
+
+      {/* Image Preview Lightbox */}
+      {previewMedia && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setPreviewMedia(null)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] w-full flex flex-col items-center"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="absolute top-0 right-0 -mt-10 -mr-0 flex items-center gap-3">
+              <span className="text-white/80 text-sm font-medium truncate max-w-xs">{previewMedia.name}</span>
+              <button
+                onClick={() => setPreviewMedia(null)}
+                className="text-white hover:text-white/60 transition-colors p-1"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <img
+              src={previewMedia.url}
+              alt={previewMedia.name}
+              className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
+            />
+            <div className="mt-4 text-white/60 text-xs font-medium">
+              {previewMedia.size} · Click outside to close
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

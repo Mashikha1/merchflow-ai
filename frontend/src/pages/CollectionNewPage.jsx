@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -9,12 +10,14 @@ import { Badge } from '../components/ui/Badge'
 import { cn } from '../lib/cn'
 import { RightDrawer } from '../components/RightDrawer'
 import { productService } from '../services/productService'
+import { api } from '../lib/api'
 import {
     Image as ImageIcon, UploadCloud, X, LayoutGrid, Filter, Sparkles, UserCheck, Eye, Store, Package, Search
 } from 'lucide-react'
 
 export function CollectionNewPage() {
     const navigate = useNavigate()
+    const qc = useQueryClient()
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const [formData, setFormData] = useState({
@@ -84,42 +87,42 @@ export function CollectionNewPage() {
         return Object.keys(errors).length === 0
     }
 
-    const handleSave = (isDraft = false) => {
-        if (!isDraft && !validateForm()) {
-            toast.error("Please fill in all required fields")
-            return
-        }
-
-        setIsSubmitting(true)
-
-        try {
-            // Read existing or default to empty
-            const existingRaw = localStorage.getItem('merchflow_collections')
-            const existingCollections = existingRaw ? JSON.parse(existingRaw) : []
-
-            const newCollection = {
-                id: `col_${Date.now()}`,
+    const createM = useMutation({
+        mutationFn: async (isDraft) => {
+            // 1. Create the collection
+            const collection = await api.post('/collections', {
                 name: formData.name || 'Untitled Collection',
-                slug: formData.slug || 'untitled',
-                items: 0, // Starts empty
-                status: isDraft ? 'Draft' : formData.status,
-                thumb: formData.coverImage || 'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?auto=format&fit=crop&q=80&w=200',
+                description: formData.description,
                 type: formData.collectionType,
-                createdAt: new Date().toISOString()
+                status: isDraft ? 'Draft' : formData.status,
+                layout: 'grid',
+            })
+            // 2. If products were manually selected, associate them
+            if (selectedProducts.length > 0 && collection.id) {
+                await Promise.allSettled(
+                    selectedProducts.map(p =>
+                        api.post(`/collections/${collection.id}/products`, { productId: p.id })
+                    )
+                )
             }
-
-            const updatedCollections = [newCollection, ...existingCollections]
-            localStorage.setItem('merchflow_collections', JSON.stringify(updatedCollections))
-
+            return collection
+        },
+        onSuccess: (col, isDraft) => {
+            qc.invalidateQueries({ queryKey: ['collections'] })
             toast.success(`Collection ${isDraft ? 'saved as draft' : 'created'} successfully`)
             navigate('/collections')
-
-        } catch (error) {
-            console.error(error)
-            toast.error("Failed to create collection")
-        } finally {
-            setIsSubmitting(false)
+        },
+        onError: (err) => {
+            toast.error('Failed to create collection: ' + (err.message || 'Unknown error'))
         }
+    })
+
+    const handleSave = (isDraft = false) => {
+        if (!isDraft && !validateForm()) {
+            toast.error('Please fill in all required fields')
+            return
+        }
+        createM.mutate(isDraft)
     }
 
     const ToggleSwitch = ({ checked, onChange, label, description }) => (
@@ -175,9 +178,11 @@ export function CollectionNewPage() {
                     <p className="text-[13px] text-content-secondary mt-1">Configure a new product grouping for campaigns or seasons.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Button variant="outline" onClick={() => navigate('/collections')} disabled={isSubmitting}>Cancel</Button>
-                    <Button variant="secondary" onClick={() => handleSave(true)} disabled={isSubmitting}>Save Draft</Button>
-                    <Button onClick={() => handleSave(false)} disabled={isSubmitting}>Create Collection</Button>
+                    <Button variant="outline" onClick={() => navigate('/collections')} disabled={createM.isPending}>Cancel</Button>
+                    <Button variant="secondary" onClick={() => handleSave(true)} disabled={createM.isPending}>Save Draft</Button>
+                    <Button onClick={() => handleSave(false)} disabled={createM.isPending}>
+                        {createM.isPending ? 'Creating…' : 'Create Collection'}
+                    </Button>
                 </div>
             </div>
 

@@ -37,7 +37,7 @@ export function OnboardingPage() {
     <div className="space-y-6">
       <PageHeader
         title="Onboarding"
-        subtitle="Multi-step setup wizard (frontend-only)."
+        subtitle="Set up your workspace in a few quick steps."
         actions={
           <>
             <Button
@@ -100,7 +100,7 @@ export function OnboardingPage() {
             <CardHeader>
               <CardTitle>{step.title}</CardTitle>
               <div className="text-sm text-muted">
-                Make the demo feel like a real SaaS setup flow.
+                Configure your workspace to get started.
               </div>
             </CardHeader>
             <CardContent className="grid gap-5 md:grid-cols-2">
@@ -153,7 +153,7 @@ export function OnboardingPage() {
                 <div className="rounded-[var(--radius)] border border-dashed border-[rgb(var(--border))] p-4">
                   <div className="text-sm font-medium">Invite team</div>
                   <div className="mt-1 text-sm text-muted">
-                    Add merchandisers, sales, and designers (mock).
+                    Add merchandisers, sales, and designers to your team.
                   </div>
                   <div className="mt-3 grid gap-2">
                     <Input placeholder="email@brand.com" />

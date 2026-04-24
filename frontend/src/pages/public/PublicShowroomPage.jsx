@@ -1,140 +1,109 @@
-import { Link, useParams } from 'react-router-dom'
-import { Card } from '../../components/ui/Card'
-import { Button } from '../../components/ui/Button'
-import { Search, Heart, Mail, FileText, ChevronDown, Filter, LayoutGrid, CheckCircle2 } from 'lucide-react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { Skeleton } from '../../components/ui/Skeleton'
+
+const publicApi = async (path) => {
+  const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/public${path}`)
+  if (!res.ok) throw new Error('Not found')
+  return res.json()
+}
+
+const trackView = (entity, entityId, showroomId) => {
+  fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/public/track`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity, entityId, showroomId, visitorId: localStorage.getItem('visitor_id') || crypto.randomUUID() })
+  }).catch(() => {})
+  if (!localStorage.getItem('visitor_id')) localStorage.setItem('visitor_id', crypto.randomUUID())
+}
 
 export function PublicShowroomPage() {
   const { slug } = useParams()
+  const navigate = useNavigate()
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-      {/* Showroom Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">ACME Apparel Co.</h1>
-            <nav className="hidden md:flex gap-6 text-sm font-medium text-gray-600">
-              <a href="#" className="text-black border-b-2 border-black pb-1">All Products</a>
-              <a href="#" className="hover:text-black transition-colors">Men's Core</a>
-              <a href="#" className="hover:text-black transition-colors">Women's Core</a>
-              <a href="#" className="hover:text-black transition-colors">Accessories</a>
-            </nav>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="relative hidden lg:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search collection..."
-                className="pl-9 pr-4 py-2 bg-gray-100 border-transparent rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-black focus:bg-white transition-all w-64"
-              />
-            </div>
-            <button className="relative p-2 text-gray-400 hover:text-black transition-colors">
-              <Heart className="h-5 w-5" />
-              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-indigo-600"></span>
-            </button>
-            <div className="h-6 w-px bg-gray-200 mx-2"></div>
-            <Button className="bg-black text-white rounded-full px-6">Request Quote</Button>
-          </div>
-        </div>
-      </header>
+  const { data: showroom, isLoading, error } = useQuery({
+    queryKey: ['public-showroom', slug],
+    queryFn: async () => {
+      const sr = await publicApi(`/showroom/${slug}`)
+      trackView('showroom', sr.id, sr.id)
+      return sr
+    }
+  })
 
-      {/* Hero Banner */}
-      <section className="bg-gray-900 text-white relative h-[400px] flex items-center overflow-hidden">
-        <img src="https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?auto=format&fit=crop&q=80&w=2000" alt="Autumn collection" className="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-overlay" />
-        <div className="relative z-10 max-w-7xl mx-auto px-6 w-full text-center">
-          <Badge className="bg-white/20 text-white backdrop-blur border-white/10 mb-6 font-medium tracking-wide">AUTUMN COLLECTION 2026</Badge>
-          <h2 className="text-5xl md:text-6xl font-serif font-bold tracking-tight mb-6">Elevated Essentials.</h2>
-          <p className="text-lg text-gray-300 max-w-2xl mx-auto mb-10">Discover our latest collection of premium organic cotton and recycled materials. Designed for longevity and everyday comfort.</p>
-          <div className="flex items-center justify-center gap-4">
-            <Button size="lg" className="bg-white text-black hover:bg-gray-100 border-none rounded-full px-8">View Lookbook</Button>
-            <Button size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 rounded-full px-8"><FileText className="mr-2 h-4 w-4" /> Download PDF</Button>
-          </div>
-        </div>
-      </section>
-
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl mx-auto px-6 py-12 w-full flex gap-12">
-        {/* Sidebar Filters */}
-        <aside className="w-64 hidden lg:block flex-shrink-0 space-y-8">
-          <div>
-            <h3 className="font-semibold text-gray-900 mb-4 flex items-center justify-between">Category <ChevronDown size={16} /></h3>
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 text-sm text-gray-600"><input type="checkbox" className="rounded text-black" defaultChecked /> Tops (45)</label>
-              <label className="flex items-center gap-3 text-sm text-gray-600"><input type="checkbox" className="rounded text-black" /> Bottoms (24)</label>
-              <label className="flex items-center gap-3 text-sm text-gray-600"><input type="checkbox" className="rounded text-black" /> Outerwear (12)</label>
-              <label className="flex items-center gap-3 text-sm text-gray-600"><input type="checkbox" className="rounded text-black" /> Accessories (8)</label>
-            </div>
-          </div>
-          <div className="h-px bg-gray-200"></div>
-          <div>
-            <h3 className="font-semibold text-gray-900 mb-4 flex items-center justify-between">Material <ChevronDown size={16} /></h3>
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 text-sm text-gray-600"><input type="checkbox" className="rounded text-black" /> Organic Cotton</label>
-              <label className="flex items-center gap-3 text-sm text-gray-600"><input type="checkbox" className="rounded text-black" /> Recycled Poly</label>
-              <label className="flex items-center gap-3 text-sm text-gray-600"><input type="checkbox" className="rounded text-black" /> Linen Blend</label>
-            </div>
-          </div>
-        </aside>
-
-        {/* Product Grid */}
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-8">
-            <div className="text-sm text-gray-500">Showing <span className="font-medium text-black">89</span> products</div>
-            <div className="flex items-center gap-4">
-              <button className="text-gray-400 hover:text-black lg:hidden"><Filter size={18} /></button>
-              <select className="text-sm border-none bg-transparent font-medium focus:ring-0 cursor-pointer">
-                <option>Recommended</option>
-                <option>Newest Arrivals</option>
-                <option>Price: Low to High</option>
-              </select>
-              <div className="flex items-center gap-2 border-l border-gray-200 pl-4">
-                <button className="text-black"><LayoutGrid size={18} /></button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-10">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-              <Link key={i} to={`/s/${slug || 'demo'}/products/prod_${i}`} className="group block">
-                <div className="aspect-[3/4] bg-gray-100 rounded-lg mb-4 relative overflow-hidden">
-                  <img src={`https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=400`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="Product" />
-                  <button className="absolute top-3 right-3 p-2 bg-white/80 hover:bg-white backdrop-blur rounded-full opacity-0 group-hover:opacity-100 transition-all text-gray-400 hover:text-red-500 shadow-sm">
-                    <Heart size={16} />
-                  </button>
-                  {i === 1 && <div className="absolute top-3 left-3 bg-black text-white text-[10px] font-bold uppercase tracking-wider py-1 px-2 rounded">New</div>}
-                  {i === 3 && <div className="absolute top-3 left-3 bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider py-1 px-2 rounded flex items-center gap-1"><CheckCircle2 size={10} /> In Stock</div>}
-                </div>
-                <div className="space-y-1">
-                  <div className="text-xs text-gray-500 mb-1">T-Shirts</div>
-                  <h3 className="text-sm font-medium text-gray-900 group-hover:underline">Core Cotton Crew Neck</h3>
-                  <div className="text-sm font-semibold text-gray-900 pt-1">Request Pricing</div>
-                </div>
-              </Link>
-            ))}
-          </div>
-
-          <div className="mt-16 flex justify-center">
-            <Button variant="outline" className="px-8 border-gray-300">Load More Products</Button>
-          </div>
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 py-12 mt-auto">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between text-sm text-gray-500">
-          <p>© 2026 ACME Apparel Co. Powered by MerchFlow AI.</p>
-          <div className="flex gap-6 mt-4 md:mt-0">
-            <a href="#" className="hover:text-black transition-colors">Contact Sales</a>
-            <a href="#" className="hover:text-black transition-colors">Terms of Service</a>
-            <a href="#" className="hover:text-black transition-colors">Privacy Policy</a>
-          </div>
-        </div>
-      </footer>
+  if (isLoading) return (
+    <div className="min-h-screen bg-[#faf8f5]">
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        <Skeleton className="h-64 w-full rounded-2xl" /><Skeleton className="h-8 w-64" /><Skeleton className="h-4 w-96" />
+      </div>
     </div>
   )
-}
 
-function Badge({ children, className }) {
-  return <span className={`inline-block px-3 py-1 text-xs rounded-full ${className}`}>{children}</span>
+  if (error || !showroom) return (
+    <div className="min-h-screen bg-[#faf8f5] flex items-center justify-center">
+      <div className="text-center space-y-4">
+        <div className="text-5xl">🔒</div>
+        <h1 className="text-2xl font-bold text-[#2c2420]">Showroom Not Found</h1>
+        <p className="text-[#8c7e72]">This showroom may not be published or doesn't exist.</p>
+      </div>
+    </div>
+  )
+
+  const settings = typeof showroom.settings === 'object' ? showroom.settings : {}
+
+  return (
+    <div className="min-h-screen bg-[#faf8f5]">
+      {/* Hero */}
+      {showroom.coverImage && (
+        <div className="relative h-[400px] overflow-hidden">
+          <img src={showroom.coverImage} alt={showroom.name} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-8 max-w-6xl mx-auto">
+            <h1 className="text-4xl font-bold text-white tracking-tight">{showroom.name}</h1>
+            {showroom.description && <p className="text-white/80 mt-2 max-w-xl">{showroom.description}</p>}
+          </div>
+        </div>
+      )}
+
+      {!showroom.coverImage && (
+        <div className="bg-[#2c2420] py-16 px-6">
+          <div className="max-w-6xl mx-auto">
+            <h1 className="text-4xl font-bold text-white tracking-tight">{showroom.name}</h1>
+            {showroom.description && <p className="text-white/70 mt-2 max-w-xl">{showroom.description}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Nav */}
+      <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-[#e8e2da]">
+        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-14">
+          <div className="flex gap-6 text-sm font-medium">
+            <span className="text-[#2c2420] border-b-2 border-[#C47B2B] pb-1">Products</span>
+          </div>
+          <div className="flex gap-3">
+            {settings.allowWishlist !== false && (
+              <Link to={`/s/${slug}/wishlist`} className="text-sm text-[#8c7e72] hover:text-[#2c2420] transition">♡ Wishlist</Link>
+            )}
+            {settings.allowQuoteRequest !== false && (
+              <Link to={`/s/${slug}/request-quote`} className="px-4 py-2 bg-[#C47B2B] text-white text-sm rounded-lg font-medium hover:bg-[#a86820] transition">Request Quote</Link>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Content — placeholder until products are linked */}
+      <div className="max-w-6xl mx-auto px-6 py-10">
+        <div className="text-center py-16 space-y-4">
+          <div className="text-5xl">🏬</div>
+          <h2 className="text-xl font-bold text-[#2c2420]">Welcome to {showroom.name}</h2>
+          <p className="text-[#8c7e72] max-w-md mx-auto">Products will appear here once they are added to this showroom. Use the showroom builder in your dashboard to curate this collection.</p>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="bg-[#2c2420] py-8 px-6 mt-20">
+        <div className="max-w-6xl mx-auto text-center">
+          <p className="text-white/50 text-xs">Powered by MerchFlow AI</p>
+        </div>
+      </div>
+    </div>
+  )
 }

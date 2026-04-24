@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { Button } from '../components/ui/Button'
@@ -60,8 +60,10 @@ function expandNodeInTree(tree, nodeId) {
 export function CategoriesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const bannerInputRef = useRef(null)
   
   const [categories, setCategories] = useState([])
+  const [bannerPreview, setBannerPreview] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [isCreateMode, setIsCreateMode] = useState(false)
 
@@ -273,6 +275,16 @@ export function CategoriesPage() {
     navigate(`/showrooms?create=true&source=Category&categoryId=${selectedCategory.id}&name=${encodeURIComponent(selectedCategory.name)}`)
   }
 
+  const handleBannerUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const url = URL.createObjectURL(file)
+    setBannerPreview(url)
+    setDraftForm(prev => ({ ...prev, bannerImage: url }))
+    toast.success('Banner image added')
+    e.target.value = ''
+  }
+
   // Recursive Category Node Component
   const CategoryNode = ({ node, level = 0 }) => {
     const isSelected = selectedCategory?.id === node.id
@@ -473,10 +485,26 @@ export function CategoriesPage() {
                       <div className="space-y-5">
                         <div>
                           <label className="block text-[13px] font-semibold text-content-primary mb-1.5">Category Image / Banner</label>
-                          <div className="h-32 border-2 border-dashed border-border-strong rounded-xl bg-app-card-muted hover:bg-border-subtle flex flex-col items-center justify-center text-content-tertiary cursor-pointer transition-colors relative overflow-hidden group">
-                            <ImageIcon size={24} className="mb-2 group-hover:scale-110 transition-transform" />
-                            <span className="text-xs font-medium">Upload Banner Image</span>
+                          <div
+                            className="h-32 border-2 border-dashed border-border-strong rounded-xl bg-app-card-muted hover:bg-border-subtle flex flex-col items-center justify-center text-content-tertiary cursor-pointer transition-colors relative overflow-hidden group"
+                            onClick={() => bannerInputRef.current?.click()}
+                          >
+                            {(draftForm.bannerImage || bannerPreview) ? (
+                              <img src={draftForm.bannerImage || bannerPreview} alt="Banner" className="absolute inset-0 w-full h-full object-cover" />
+                            ) : (
+                              <>
+                                <ImageIcon size={24} className="mb-2 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs font-medium">Upload Banner Image</span>
+                              </>
+                            )}
                           </div>
+                          <input
+                            ref={bannerInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleBannerUpload}
+                          />
                         </div>
                         <div>
                           <label className="block text-[13px] font-semibold text-content-primary mb-1.5">Status</label>

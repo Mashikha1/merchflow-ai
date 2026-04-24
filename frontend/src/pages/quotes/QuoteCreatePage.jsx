@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card'
@@ -48,6 +48,7 @@ function computeTotals(items) {
 export function QuoteCreatePage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { id: editId } = useParams()  // present when route is /quotes/:id/edit
   const qc = useQueryClient()
 
   const [activeStep, setActiveStep] = useState('buyer')

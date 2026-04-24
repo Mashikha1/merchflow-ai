@@ -26,6 +26,7 @@ export function ProductNewPage() {
   const [step, setStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [createdProductId, setCreatedProductId] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
   const [mode, setMode] = useState('existing') // 'existing' | 'new'
   const [existingId, setExistingId] = useState('')
@@ -140,8 +141,31 @@ export function ProductNewPage() {
   }
   const createProductM = useMutation({
     mutationFn: productService.createProduct,
-    onSuccess: () => {
+    onSuccess: async (createdProduct) => {
+      // Persist variants if any were configured
+      if (formData.variants?.length > 0 && createdProduct?.id) {
+        try {
+          await Promise.all(formData.variants.map(v =>
+            fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/variants`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${JSON.parse(localStorage.getItem('merchflow_auth') || '{}')?.state?.token}`
+              },
+              body: JSON.stringify({
+                productId: createdProduct.id,
+                sku: v.sku || `${formData.sku || 'VAR'}-${Object.values(v.attrs).join('-').toUpperCase()}`,
+                price: Number(v.price) || Number(formData.retailPrice) || 0,
+                stock: Number(v.stock) || 0,
+                attributes: v.attrs,
+              })
+            })
+          ))
+          toast.success(`${formData.variants.length} variants saved`)
+        } catch { toast.error('Product saved but variants failed — retry in product details') }
+      }
       queryClient.invalidateQueries({ queryKey: ['products'] })
+      setCreatedProductId(createdProduct?.id || null)
       setShowSuccess(true)
       setIsSubmitting(false)
     },
@@ -156,14 +180,10 @@ export function ProductNewPage() {
       toast.error('Product name is required')
       return
     }
-    
     setIsSubmitting(true)
-    
     const sku = formData.sku || `SKU-${Math.random().toString(36).substr(2, 6).toUpperCase()}`
-
     createProductM.mutate({
-      name: formData.name,
-      sku: sku,
+      name: formData.name, sku,
       description: formData.description,
       price: Number(formData.retailPrice) || 0,
       cost: Number(formData.wholesalePrice) || 0,
@@ -174,7 +194,7 @@ export function ProductNewPage() {
     })
   }
 
-  // Calculate completeness score (mock logic)
+  // Calculate completeness score
   const calculateCompleteness = () => {
     let score = 0
     if (formData.name) score += 10
@@ -201,7 +221,7 @@ export function ProductNewPage() {
           <p className="text-[16px] text-content-secondary mb-10">"{formData.name}" has been saved as a {formData.status.toLowerCase()} and is ready for next steps.</p>
 
           <div className="grid grid-cols-2 gap-4 mb-10">
-            <Button size="lg" onClick={() => navigate('/products/prod_new_123')} className="w-full text-[15px] h-14">
+            <Button size="lg" onClick={() => createdProductId ? navigate(`/products/${createdProductId}`) : navigate('/products')} className="w-full text-[15px] h-14">
               Open Product Details
             </Button>
             <Button size="lg" variant="secondary" onClick={() => {

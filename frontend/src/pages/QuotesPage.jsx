@@ -60,6 +60,24 @@ function sumItems(q) {
   return (q.items || []).reduce((acc, it) => acc + (it.qty || 0), 0)
 }
 
+// Normalize flat DB shape → frontend shape
+function normalizeQuote(q) {
+  if (!q) return q
+  return {
+    ...q,
+    buyer: q.buyer || {
+      name: q.buyerName,
+      company: q.buyerCompany,
+      email: q.buyerEmail,
+      phone: q.buyerPhone,
+      country: q.buyerCountry,
+    },
+    assignedTo: q.assignedTo?.name || q.assignedToId || 'Unassigned',
+    approvalHistory: q.history || q.approvalHistory || [],
+  }
+}
+
+
 function QuoteSummaryCards({ quotes }) {
   const total = quotes.length
   const byStatus = (s) => quotes.filter((q) => q.status === s).length
@@ -83,7 +101,7 @@ function QuoteSummaryCards({ quotes }) {
             <div className="mt-2 text-lg font-semibold tracking-[-0.03em]">
               {c.value}
             </div>
-            <div className="mt-1 text-xs text-muted">Last 30 days (mock)</div>
+            <div className="mt-1 text-xs text-muted">Last 30 days</div>
           </CardContent>
         </Card>
       ))}
@@ -336,11 +354,20 @@ export function QuotesPage() {
   const [statusFilter, setStatusFilter] = useState('All')
   const [detailId, setDetailId] = useState(null)
 
-  const quotesQ = useQuery({ queryKey: ['quotes'], queryFn: quoteService.listQuotes })
+  const quotesQ = useQuery({
+    queryKey: ['quotes'],
+    queryFn: async () => {
+      const data = await quoteService.listQuotes()
+      return (Array.isArray(data) ? data : []).map(normalizeQuote)
+    }
+  })
   const detailQ = useQuery({
     queryKey: ['quotes', detailId],
     enabled: !!detailId,
-    queryFn: () => quoteService.getQuote(detailId),
+    queryFn: async () => {
+      const data = await quoteService.getQuote(detailId)
+      return normalizeQuote(data)
+    },
   })
 
   const actM = useMutation({
@@ -468,7 +495,7 @@ export function QuotesPage() {
             <CardHeader>
               <CardTitle>Quote management</CardTitle>
               <CardDescription>
-                Click a row to open details. Actions persist to localStorage.
+                Click a row to open details. All actions are saved to the database.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -594,11 +621,7 @@ export function QuotesPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() =>
-                  toast.message('Edit (mock)', {
-                    description: 'Full-page edit route is a future enhancement.',
-                  })
-                }
+                onClick={() => navigate(`/quotes/${detailId}/edit`)}
               >
                 Edit
               </Button>
@@ -617,16 +640,29 @@ export function QuotesPage() {
                   actM.mutate({ type: 'duplicate', id: detailId })
                   toast.success('Duplicated', { description: detailId })
                 }}
-                onDownloadPdf={() =>
-                  toast.message('PDF download', {
-                    description: 'Placeholder in frontend-only build.',
-                  })
-                }
+                onDownloadPdf={async () => {
+                  try {
+                    const token = JSON.parse(localStorage.getItem('merchflow_auth') || '{}')?.state?.token
+                    const res = await fetch(
+                      `${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/quotes/${detailId}/pdf`,
+                      { headers: { Authorization: `Bearer ${token}` } }
+                    )
+                    if (!res.ok) throw new Error()
+                    const blob = await res.blob()
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `quote-${detailId}.pdf`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                    toast.success('PDF downloaded!')
+                  } catch {
+                    toast.error('Failed to download PDF')
+                  }
+                }}
                 onConvert={() => {
                   actM.mutate({ type: 'convert', id: detailId })
-                  toast.success('Converted', {
-                    description: 'Order created (mock).',
-                  })
+                  toast.success('Quote converted to Order.')
                 }}
                 onArchive={() => {
                   actM.mutate({ type: 'archive', id: detailId })

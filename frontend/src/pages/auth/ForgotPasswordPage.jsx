@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, MailCheck, ArrowLeft } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { cn } from '../../lib/cn'
+import { toast } from 'sonner'
 
 const schema = z.object({
   email: z.string().email('Enter a valid work email')
@@ -24,9 +25,17 @@ export function ForgotPasswordPage() {
   const onSubmit = async (values) => {
     try {
       setLoading(true)
-      // Fake network duration
-      await new Promise(r => setTimeout(r, 800))
+      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+      const res = await fetch(`${BASE}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: values.email })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Something went wrong')
       setSuccess(true)
+    } catch (e) {
+      toast.error(e.message || 'Failed to send reset link')
     } finally {
       setLoading(false)
     }

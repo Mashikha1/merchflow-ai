@@ -82,7 +82,7 @@ export function AIStudioPage() {
       {jobsQ.isError ? (
         <ErrorState
           title="Couldn’t load AI Studio"
-          description="Mock service error. Try again."
+          description="Check your connection and try again."
           onRetry={() => jobsQ.refetch()}
         />
       ) : (
