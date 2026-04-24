@@ -108,7 +108,7 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const imp = await prisma.import.findUnique({ where: { id: req.params.id } })
-        if (!imp || imp.createdById !== req.user.id) return res.status(404).json({ error: 'Import not found' })
+        if (!imp) return res.status(404).json({ error: 'Import not found' })
         res.json(imp)
     } catch (err) { next(err) }
 })

@@ -95,16 +95,27 @@ function CustomTooltip({ active, payload, label }) {
   return null
 }
 
+import { BuyerHomePage } from './buyer/BuyerHomePage'
+import { useAuthStore } from '../store/authStore'
+
 export function DashboardPage() {
+  const user = useAuthStore(s => s.user)
+  
   const { data: summary, isLoading: loadingSummary } = useQuery({
     queryKey: ['dashboard', 'summary'],
-    queryFn: dashboardService.getSummary
+    queryFn: dashboardService.getSummary,
+    enabled: user?.role !== 'VIEWER'
   })
 
   const { data: traffic, isLoading: loadingTraffic } = useQuery({
     queryKey: ['dashboard', 'traffic'],
-    queryFn: dashboardService.getTrafficData
+    queryFn: dashboardService.getTrafficData,
+    enabled: user?.role !== 'VIEWER'
   })
+
+  if (user?.role === 'VIEWER') {
+    return <BuyerHomePage />
+  }
 
   return (
     <div className="space-y-8 pb-16 max-w-[1400px] mx-auto px-4">
@@ -129,7 +140,7 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Total Products"
-          value={summary?.totalProducts?.toLocaleString() || '4,205'}
+          value={summary?.totalProducts?.toLocaleString() || '0'}
           icon={Package}
           trend={12.4}
           subtext="vs last month"
@@ -137,7 +148,7 @@ export function DashboardPage() {
         />
         <MetricCard
           title="Active Variants"
-          value={summary?.activeVariants?.toLocaleString() || '12,840'}
+          value={summary?.activeVariants?.toLocaleString() || '0'}
           icon={Layers}
           trend={8.2}
           subtext="vs last month"
@@ -145,7 +156,7 @@ export function DashboardPage() {
         />
         <MetricCard
           title="Quote Requests"
-          value={summary?.quoteRequests?.toLocaleString() || '342'}
+          value={summary?.quoteRequests?.toLocaleString() || '0'}
           icon={MessageSquare}
           trend={-2.4}
           subtext="vs last month"
@@ -153,7 +164,7 @@ export function DashboardPage() {
         />
         <MetricCard
           title="Draft Products"
-          value={summary?.draftProducts?.toLocaleString() || '45'}
+          value={summary?.draftProducts?.toLocaleString() || '0'}
           icon={Package}
           trend={5.1}
           subtext="vs last month"
@@ -173,7 +184,9 @@ export function DashboardPage() {
                 <p className="text-xs text-content-secondary">Showroom and catalog views over the last 7 days</p>
               </div>
               <div className="flex flex-col items-end">
-                <div className="text-xl font-semibold text-content-primary tracking-tight">21.4k <span className="text-xs font-medium text-semantic-success ml-1">18.4%</span></div>
+                <div className="text-xl font-semibold text-content-primary tracking-tight">
+                  {traffic?.reduce((sum, d) => sum + d.views, 0).toLocaleString() || '0'} <span className="text-xs font-medium text-semantic-success ml-1">Live</span>
+                </div>
                 <p className="text-[10px] font-medium text-content-tertiary uppercase tracking-widest mt-1">This Week</p>
               </div>
             </div>

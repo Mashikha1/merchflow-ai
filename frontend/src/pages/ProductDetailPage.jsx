@@ -11,6 +11,7 @@ import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
+import { useAuthStore } from '../store/authStore'
 import { api } from '../lib/api'
 
 const TABS = [
@@ -27,6 +28,8 @@ const TABS = [
 // ─── Variants Tab ─────────────────────────────────────────────────────────────
 function VariantsTab({ productId }) {
   const qc = useQueryClient()
+  const user = useAuthStore(s => s.user)
+  const isBuyer = user?.role === 'VIEWER'
   const [editingRow, setEditingRow] = useState(null)
   const [newVariant, setNewVariant] = useState(null)
 
@@ -61,9 +64,11 @@ function VariantsTab({ productId }) {
           <h3 className="text-lg font-semibold">Variant Matrix</h3>
           <p className="text-sm text-gray-500 mt-0.5">{variants.length} variants configured</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setNewVariant({ sku: '', price: '', stock: '', attributes: {} })}>
-          <Plus className="h-4 w-4 mr-1" /> Add Variant
-        </Button>
+        {!isBuyer && (
+          <Button variant="outline" size="sm" onClick={() => setNewVariant({ sku: '', price: '', stock: '', attributes: {} })}>
+            <Plus className="h-4 w-4 mr-1" /> Add Variant
+          </Button>
+        )}
       </div>
 
       {variants.length === 0 && !newVariant ? (
@@ -83,7 +88,7 @@ function VariantsTab({ productId }) {
               <th className="px-6 py-3">SKU</th>
               <th className="px-6 py-3">Price</th>
               <th className="px-6 py-3">Stock</th>
-              <th className="px-6 py-3">Actions</th>
+              {!isBuyer && <th className="px-6 py-3">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -111,23 +116,25 @@ function VariantsTab({ productId }) {
                       ? <Input type="number" value={editingRow.stock} onChange={e => setEditingRow({ ...editingRow, stock: e.target.value })} className="h-8 text-xs w-24" />
                       : v.stock ?? '—'}
                   </td>
-                  <td className="px-6 py-3">
-                    <div className="flex gap-2">
-                      {isEditing ? (
-                        <>
-                          <Button size="sm" onClick={() => updateM.mutate(editingRow)} disabled={updateM.isPending}>Save</Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingRow(null)}>Cancel</Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingRow({ id: v.id, sku: v.sku || '', price: v.price || '', stock: v.stock || '' })}>Edit</Button>
-                          <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-600" onClick={() => deleteM.mutate(v.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </td>
+                  {!isBuyer && (
+                    <td className="px-6 py-3">
+                      <div className="flex gap-2">
+                        {isEditing ? (
+                          <>
+                            <Button size="sm" onClick={() => updateM.mutate(editingRow)} disabled={updateM.isPending}>Save</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingRow(null)}>Cancel</Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingRow({ id: v.id, sku: v.sku || '', price: v.price || '', stock: v.stock || '' })}>Edit</Button>
+                            <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-600" onClick={() => deleteM.mutate(v.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -159,6 +166,8 @@ export function ProductDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const user = useAuthStore(s => s.user)
+  const isBuyer = user?.role === 'VIEWER'
   const isNew = id === 'new'
   const [activeTab, setActiveTab] = useState('overview')
 
@@ -193,17 +202,24 @@ export function ProductDetailPage() {
           {!isNew && <p className="text-sm text-gray-500">SKU: {data.sku || '—'}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {!isNew && (
+          {!isNew && !isBuyer && (
             <Button variant="outline" className="text-gray-600" onClick={() => navigate('/ai/try-on')}>
               <Sparkles className="h-4 w-4 mr-2 text-indigo-500" /> Generate AI Try-On
             </Button>
           )}
-          <Button variant="outline" className="hidden sm:flex" onClick={() => navigate('/ai/descriptions')}>
-            <Book className="h-4 w-4 mr-2" /> AI Descriptions
-          </Button>
-          {!isNew && (
+          {!isBuyer && (
+            <Button variant="outline" className="hidden sm:flex" onClick={() => navigate('/ai/descriptions')}>
+              <Book className="h-4 w-4 mr-2" /> AI Descriptions
+            </Button>
+          )}
+          {!isNew && !isBuyer && (
             <Button onClick={() => updateM.mutate(form)} disabled={updateM.isPending}>
               <Save className="h-4 w-4 mr-2" /> {updateM.isPending ? 'Saving…' : 'Save Product'}
+            </Button>
+          )}
+          {isBuyer && !isNew && (
+            <Button onClick={() => navigate(`/buyer/request-quote?productId=${data.id}`)}>
+              Request Quote
             </Button>
           )}
         </div>
@@ -235,31 +251,54 @@ export function ProductDetailPage() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Product Name</label>
-                      <Input value={form.name ?? (data.name || '')} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Product name" />
+                      {isBuyer ? (
+                        <div className="text-sm text-gray-900 font-medium py-2">{data.name || '—'}</div>
+                      ) : (
+                        <Input value={form.name ?? (data.name || '')} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Product name" />
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
-                        <Input value={form.sku ?? (data.sku || '')} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} />
+                        {isBuyer ? (
+                          <div className="text-sm text-gray-900 py-2">{data.sku || '—'}</div>
+                        ) : (
+                          <Input value={form.sku ?? (data.sku || '')} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} />
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                        <select value={form.status ?? (data.status || 'DRAFT')} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-                          className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-black">
-                          <option value="ACTIVE">Active</option>
-                          <option value="DRAFT">Draft</option>
-                          <option value="ARCHIVED">Archived</option>
-                        </select>
+                        {isBuyer ? (
+                          <div className="text-sm text-gray-900 py-2">{data.status || '—'}</div>
+                        ) : (
+                          <select value={form.status ?? (data.status || 'DRAFT')} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                            className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-black">
+                            <option value="ACTIVE">Active</option>
+                            <option value="DRAFT">Draft</option>
+                            <option value="ARCHIVED">Archived</option>
+                          </select>
+                        )}
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                      <textarea value={form.description ?? (data.description || '')} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                        className="flex w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-black min-h-[80px] resize-y" />
+                      {isBuyer ? (
+                        <div className="text-sm text-gray-900 py-2 whitespace-pre-wrap">{data.description || '—'}</div>
+                      ) : (
+                        <textarea value={form.description ?? (data.description || '')} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                          className="flex w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-black min-h-[80px] resize-y" />
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
-                      <Input value={form.tags?.join?.(',') ?? (Array.isArray(data.tags) ? data.tags.join(',') : '')} onChange={e => setForm(f => ({ ...f, tags: e.target.value.split(',').map(s => s.trim()) }))} placeholder="comma separated" />
+                      {isBuyer ? (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {(data.tags || []).map((t, i) => <Badge key={i} variant="secondary">{t}</Badge>)}
+                          {(!data.tags || data.tags.length === 0) && <span className="text-sm text-gray-400">—</span>}
+                        </div>
+                      ) : (
+                        <Input value={form.tags?.join?.(',') ?? (Array.isArray(data.tags) ? data.tags.join(',') : '')} onChange={e => setForm(f => ({ ...f, tags: e.target.value.split(',').map(s => s.trim()) }))} placeholder="comma separated" />
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -268,15 +307,27 @@ export function ProductDetailPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Retail Price (MSRP)</label>
-                      <Input type="number" value={form.price ?? (data.price || '')} onChange={e => setForm(f => ({ ...f, price: Number(e.target.value) }))} placeholder="0.00" />
+                      {isBuyer ? (
+                        <div className="text-sm text-gray-900 font-medium py-2">${data.price || '0.00'}</div>
+                      ) : (
+                        <Input type="number" value={form.price ?? (data.price || '')} onChange={e => setForm(f => ({ ...f, price: Number(e.target.value) }))} placeholder="0.00" />
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Cost</label>
-                      <Input type="number" value={form.cost ?? (data.cost || '')} onChange={e => setForm(f => ({ ...f, cost: Number(e.target.value) }))} placeholder="0.00" />
+                      {isBuyer ? (
+                        <div className="text-sm text-gray-900 py-2">—</div>
+                      ) : (
+                        <Input type="number" value={form.cost ?? (data.cost || '')} onChange={e => setForm(f => ({ ...f, cost: Number(e.target.value) }))} placeholder="0.00" />
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Stock on Hand</label>
-                      <Input type="number" value={form.stock ?? (data.stock || '')} onChange={e => setForm(f => ({ ...f, stock: Number(e.target.value) }))} placeholder="0" />
+                      {isBuyer ? (
+                        <div className="text-sm text-gray-900 py-2">{data.stock > 0 ? 'In Stock' : 'Out of Stock'}</div>
+                      ) : (
+                        <Input type="number" value={form.stock ?? (data.stock || '')} onChange={e => setForm(f => ({ ...f, stock: Number(e.target.value) }))} placeholder="0" />
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -287,13 +338,15 @@ export function ProductDetailPage() {
             {activeTab === 'media' && (
               <Card className="p-6">
                 <h3 className="text-lg font-semibold border-b pb-4 mb-6">Product Media</h3>
-                <div className="border-2 border-dashed border-gray-200 rounded-xl p-12 text-center hover:bg-gray-50 transition-colors cursor-pointer mb-6">
-                  <div className="flex flex-col items-center justify-center text-gray-500">
-                    <ImageIcon className="h-10 w-10 mb-3 text-gray-400" />
-                    <p className="text-sm font-medium text-gray-900">Click or drag images to upload</p>
-                    <p className="text-xs mt-1">Supports JPG, PNG up to 10MB</p>
+                {!isBuyer && (
+                  <div className="border-2 border-dashed border-gray-200 rounded-xl p-12 text-center hover:bg-gray-50 transition-colors cursor-pointer mb-6">
+                    <div className="flex flex-col items-center justify-center text-gray-500">
+                      <ImageIcon className="h-10 w-10 mb-3 text-gray-400" />
+                      <p className="text-sm font-medium text-gray-900">Click or drag images to upload</p>
+                      <p className="text-xs mt-1">Supports JPG, PNG up to 10MB</p>
+                    </div>
                   </div>
-                </div>
+                )}
                 {(data.images || []).length > 0 && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     {(data.images || []).map((url, i) => (
@@ -360,27 +413,29 @@ export function ProductDetailPage() {
               </div>
             </Card>
 
-            <Card className="p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">Status & Visibility</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-                  <select value={form.status ?? (data.status || 'DRAFT')} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-                    className="flex h-9 w-full rounded-md border border-gray-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-black">
-                    <option value="ACTIVE">Active</option>
-                    <option value="DRAFT">Draft</option>
-                    <option value="ARCHIVED">Archived</option>
-                  </select>
-                </div>
-                <div className="pt-2 border-t border-gray-100">
-                  <span className="block text-xs font-medium text-gray-500 mb-2">Publishing Channels</span>
-                  <div className="space-y-2 text-sm">
-                    <label className="flex items-center gap-2"><input type="checkbox" defaultChecked className="rounded text-black" /> Buyer Showrooms</label>
-                    <label className="flex items-center gap-2"><input type="checkbox" defaultChecked className="rounded text-black" /> Catalog PDF Export</label>
+            {!isBuyer && (
+              <Card className="p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Status & Visibility</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                    <select value={form.status ?? (data.status || 'DRAFT')} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                      className="flex h-9 w-full rounded-md border border-gray-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-black">
+                      <option value="ACTIVE">Active</option>
+                      <option value="DRAFT">Draft</option>
+                      <option value="ARCHIVED">Archived</option>
+                    </select>
+                  </div>
+                  <div className="pt-2 border-t border-gray-100">
+                    <span className="block text-xs font-medium text-gray-500 mb-2">Publishing Channels</span>
+                    <div className="space-y-2 text-sm">
+                      <label className="flex items-center gap-2"><input type="checkbox" defaultChecked className="rounded text-black" /> Buyer Showrooms</label>
+                      <label className="flex items-center gap-2"><input type="checkbox" defaultChecked className="rounded text-black" /> Catalog PDF Export</label>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            )}
 
             {!isNew && (
               <div className="text-xs text-center text-gray-400">

@@ -9,9 +9,14 @@ router.use(requireAuth)
 router.get('/', async (req, res, next) => {
     try {
         const { search, status, categoryId, collectionId } = req.query
+        const isBuyer = req.user.role === 'VIEWER'
+        const baseWhere = isBuyer 
+            ? { status: 'ACTIVE' } 
+            : {}
+
         const products = await prisma.product.findMany({
             where: {
-                createdById: req.user.id,
+                ...baseWhere,
                 ...(search && {
                     OR: [
                         { name: { contains: search, mode: 'insensitive' } },
@@ -36,7 +41,9 @@ router.get('/:id', async (req, res, next) => {
             where: { id: req.params.id },
             include: { category: true, collection: true, inventoryItems: true }
         })
-        if (!product || (product.createdById && product.createdById !== req.user.id)) return res.status(404).json({ error: 'Product not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!product) return res.status(404).json({ error: 'Product not found' })
+        if (isBuyer && product.status !== 'ACTIVE') return res.status(404).json({ error: 'Product not available' })
         res.json(product)
     } catch (err) { next(err) }
 })
@@ -67,7 +74,7 @@ router.put('/:id', async (req, res, next) => {
     try {
         const { sku, name, description, categoryId, collectionId, price, cost, stock, status, images, tags } = req.body
         const existing = await prisma.product.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Product not found' })
+        if (!existing) return res.status(404).json({ error: 'Product not found' })
 
         const product = await prisma.product.update({
             where: { id: req.params.id },
@@ -93,7 +100,7 @@ router.put('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
     try {
         const existing = await prisma.product.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Product not found' })
+        if (!existing) return res.status(404).json({ error: 'Product not found' })
 
         await prisma.product.delete({ where: { id: req.params.id } })
         res.json({ success: true })
@@ -110,8 +117,7 @@ router.post('/bulk-delete', async (req, res, next) => {
         // For bulk, let's just use a condition
         await prisma.product.deleteMany({ 
             where: { 
-                id: { in: ids },
-                OR: [{ createdById: req.user.id }, { createdById: null }]
+                id: { in: ids }
             } 
         })
         res.json({ success: true, deleted: ids.length })
@@ -125,8 +131,7 @@ router.patch('/bulk-status', async (req, res, next) => {
         if (!ids?.length || !status) return res.status(400).json({ error: 'ids and status required' })
         await prisma.product.updateMany({
             where: { 
-                id: { in: ids },
-                OR: [{ createdById: req.user.id }, { createdById: null }]
+                id: { in: ids }
             },
             data: { status: status.toUpperCase() }
         })

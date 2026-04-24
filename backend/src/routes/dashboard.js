@@ -14,16 +14,16 @@ router.get('/summary', async (req, res, next) => {
             publishedShowrooms, quoteRequests, pendingAiJobs, catalogCount,
             totalCustomers, completedJobs
         ] = await Promise.all([
-            prisma.product.count({ where: { createdById: userId } }),
-            prisma.product.count({ where: { status: 'ACTIVE', createdById: userId } }),
-            prisma.product.count({ where: { status: 'DRAFT', createdById: userId } }),
-            prisma.product.count({ where: { status: 'LOW_STOCK', createdById: userId } }),
-            prisma.showroom.count({ where: { status: 'Published', createdById: userId } }),
-            prisma.quote.count({ where: { status: { in: ['DRAFT', 'SENT', 'NEGOTIATING'] }, createdById: userId } }),
-            prisma.aIJob.count({ where: { status: { in: ['QUEUED', 'PROCESSING'] }, createdById: userId } }),
-            prisma.catalog.count({ where: { createdById: userId } }),
-            prisma.customer.count({ where: { archived: false, createdById: userId } }),
-            prisma.aIJob.count({ where: { status: 'COMPLETED', createdById: userId } }),
+            prisma.product.count(),
+            prisma.product.count({ where: { status: 'ACTIVE' } }),
+            prisma.product.count({ where: { status: 'DRAFT' } }),
+            prisma.product.count({ where: { status: 'LOW_STOCK' } }),
+            prisma.showroom.count({ where: { status: 'Published' } }),
+            prisma.quote.count({ where: { status: { in: ['DRAFT', 'SENT', 'NEGOTIATING'] } } }),
+            prisma.aIJob.count({ where: { status: { in: ['QUEUED', 'PROCESSING'] } } }),
+            prisma.catalog.count(),
+            prisma.customer.count({ where: { archived: false } }),
+            prisma.aIJob.count({ where: { status: 'COMPLETED' } }),
         ])
         res.json({
             totalProducts, activeVariants, draftProducts, lowStockItems,
@@ -43,7 +43,6 @@ router.get('/traffic', async (req, res, next) => {
         // Note: PageView might not have createdById directly, but Showrooms do.
         // We'll join or just fetch pageviews for showrooms owned by the user
         const showrooms = await prisma.showroom.findMany({
-            where: { createdById: req.user.id },
             select: { id: true }
         })
         const showroomIds = showrooms.map(s => s.id)
@@ -82,19 +81,17 @@ router.get('/activity', async (req, res, next) => {
         const userId = req.user.id
         const [quotes, imports, aiJobs] = await Promise.all([
             prisma.quote.findMany({
-                where: { archived: false, createdById: userId },
+                where: { archived: false },
                 orderBy: { updatedAt: 'desc' },
                 take: 5,
                 select: { id: true, buyerName: true, buyerCompany: true, status: true, updatedAt: true }
             }),
             prisma.import.findMany({
-                where: { createdById: userId },
                 orderBy: { createdAt: 'desc' },
                 take: 3,
                 select: { id: true, fileName: true, status: true, successRows: true, createdAt: true }
             }),
             prisma.aIJob.findMany({
-                where: { createdById: userId },
                 orderBy: { createdAt: 'desc' },
                 take: 3,
                 select: { id: true, type: true, status: true, createdAt: true, finishedAt: true }

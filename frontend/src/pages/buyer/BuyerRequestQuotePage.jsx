@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '../../components/ui/Button'
@@ -16,8 +16,43 @@ export function BuyerRequestQuotePage() {
     country: '', notes: '', minOrderQty: '50'
   })
 
+  const [searchParams] = useSearchParams()
+  const catalogId = searchParams.get('catalogId')
+  const productId = searchParams.get('productId')
+
   const wishlistQ = useQuery({ queryKey: ['wishlist'], queryFn: () => api('/wishlist') })
   const wishlistItems = Array.isArray(wishlistQ.data) ? wishlistQ.data : []
+
+  const catalogQ = useQuery({
+    queryKey: ['catalogs', catalogId],
+    queryFn: () => api(`/catalogs/${catalogId}`),
+    enabled: !!catalogId
+  })
+
+  const productQ = useQuery({
+    queryKey: ['products', productId],
+    queryFn: () => api(`/products/${productId}`),
+    enabled: !!productId
+  })
+  
+  // Normalize catalog items to match wishlist item structure for the quote payload
+  const catalogItems = catalogId && catalogQ.data?.items 
+    ? catalogQ.data.items.map(item => ({
+        id: `cat_item_${item.id}`,
+        productId: item.id,
+        product: { id: item.id, sku: item.sku, name: item.name, price: item.price || 0 }
+      }))
+    : []
+
+  const singleProductItem = productId && productQ.data
+    ? [{
+        id: `single_item_${productQ.data.id}`,
+        productId: productQ.data.id,
+        product: productQ.data
+      }]
+    : []
+
+  const requestItems = catalogId ? catalogItems : (productId ? singleProductItem : wishlistItems)
 
   const submitM = useMutation({
     mutationFn: (data) => api('/quotes', {
@@ -25,7 +60,7 @@ export function BuyerRequestQuotePage() {
       body: JSON.stringify({
         buyerName: data.name, buyerEmail: data.email, buyerCompany: data.company,
         buyerPhone: data.phone, buyerCountry: data.country, source: 'Buyer Portal',
-        items: wishlistItems.map(wi => ({
+        items: requestItems.map(wi => ({
           productId: wi.productId, sku: wi.product?.sku, name: wi.product?.name,
           qty: parseInt(data.minOrderQty) || 50, unitPrice: wi.product?.price || 0
         })),
@@ -55,11 +90,14 @@ export function BuyerRequestQuotePage() {
         <p className="text-sm text-content-secondary mt-1">Fill in your details and we'll prepare a personalized wholesale quote.</p>
       </div>
 
-      {wishlistItems.length > 0 && (
+      {requestItems.length > 0 && (
         <div className="p-4 rounded-xl border border-border-subtle bg-app-card-muted">
-          <div className="text-sm font-medium text-content-primary mb-2">Items in your wishlist ({wishlistItems.length})</div>
+          <div className="text-sm font-medium text-content-primary mb-2">
+            Items included in this quote request ({requestItems.length})
+            {catalogId && <span className="ml-2 text-xs text-brand">(From Catalog)</span>}
+          </div>
           <div className="space-y-1">
-            {wishlistItems.map(wi => (
+            {requestItems.map(wi => (
               <div key={wi.id} className="text-xs text-content-secondary flex justify-between">
                 <span>{wi.product?.name || 'Product'}</span>
                 <span className="text-content-tertiary">{wi.product?.sku}</span>

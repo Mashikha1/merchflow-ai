@@ -45,9 +45,14 @@ async function getBrandSettings(userId) {
 router.get('/', async (req, res, next) => {
     try {
         const { status, search, archived } = req.query
+        const isBuyer = req.user.role === 'VIEWER'
+        const baseWhere = isBuyer 
+            ? { archived: archived === 'true', buyerEmail: req.user.email }
+            : { archived: archived === 'true', createdById: req.user.id }
+
         let quotes = await prisma.quote.findMany({
             where: {
-                archived: archived === 'true',
+                ...baseWhere,
                 ...(status && { status: status.toUpperCase() }),
                 ...(search && {
                     OR: [
@@ -55,11 +60,7 @@ router.get('/', async (req, res, next) => {
                         { buyerCompany: { contains: search, mode: 'insensitive' } },
                         { id: { contains: search, mode: 'insensitive' } }
                     ]
-                }),
-                OR: [
-                    { createdById: req.user.id },
-                    { assignedToId: req.user.id }
-                ]
+                })
             },
             include: { items: true, history: { orderBy: { at: 'asc' } }, customer: true, assignedTo: { select: { id: true, name: true } } },
             orderBy: { updatedAt: 'desc' }
@@ -77,7 +78,8 @@ router.get('/:id', async (req, res, next) => {
             where: { id: req.params.id },
             include: { items: { include: { product: true } }, history: { orderBy: { at: 'asc' } }, customer: true, assignedTo: { select: { id: true, name: true } } }
         })
-        if (!quote || (quote.createdById !== req.user.id && quote.assignedToId !== req.user.id && quote.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!quote || (isBuyer && quote.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
         quote = await autoExpire(quote)
         res.json({ ...quote, totals: computeTotals(quote.items) })
     } catch (err) { next(err) }
@@ -86,19 +88,35 @@ router.get('/:id', async (req, res, next) => {
 // POST /api/quotes
 router.post('/', async (req, res, next) => {
     try {
-        const { buyer, source, items = [], currency, expiryDate, assignedToId, customerId, internalNotes } = req.body
+        let { buyer, buyerName, buyerEmail, buyerCompany, buyerPhone, buyerCountry, source, items = [], currency, expiryDate, assignedToId, customerId, internalNotes } = req.body
+        
+        // Handle payload from Buyer Portal
+        if (!buyer && buyerName && buyerEmail) {
+            buyer = { name: buyerName, email: buyerEmail, company: buyerCompany, phone: buyerPhone, country: buyerCountry }
+        }
+        
         if (!buyer?.name || !buyer?.email) return res.status(400).json({ error: 'buyer.name and buyer.email required' })
+
+        const isBuyer = req.user.role === 'VIEWER'
+
+        let targetSellerId = req.user.id
+        if (isBuyer && items.length > 0 && items[0].productId) {
+            const firstProduct = await prisma.product.findUnique({ where: { id: items[0].productId } })
+            if (firstProduct && firstProduct.createdById) {
+                targetSellerId = firstProduct.createdById
+            }
+        }
 
         const quote = await prisma.quote.create({
             data: {
                 buyerName: buyer.name, buyerCompany: buyer.company || '', buyerEmail: buyer.email,
                 buyerPhone: buyer.phone, buyerCountry: buyer.country,
-                source: source || 'Sales', currency: currency || 'USD',
+                source: source || (isBuyer ? 'Buyer Portal' : 'Sales'), currency: currency || 'USD',
                 expiryDate: expiryDate ? new Date(expiryDate) : new Date(Date.now() + 14 * 86400000),
                 assignedToId, customerId, internalNotes,
                 items: { create: items.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct || 0, productId: i.productId })) },
                 history: { create: { by: req.user.name, action: 'Created draft' } },
-                createdById: req.user.id
+                createdById: targetSellerId
             },
             include: { items: true, history: true, customer: true }
         })
@@ -111,7 +129,8 @@ router.put('/:id', async (req, res, next) => {
     try {
         const { items, status, internalNotes, expiryDate, assignedToId } = req.body
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
@@ -135,7 +154,8 @@ router.put('/:id', async (req, res, next) => {
 router.post('/:id/send', async (req, res, next) => {
     try {
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
@@ -168,7 +188,8 @@ router.post('/:id/send', async (req, res, next) => {
 router.post('/:id/approve', async (req, res, next) => {
     try {
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
@@ -192,7 +213,8 @@ router.post('/:id/approve', async (req, res, next) => {
 router.post('/:id/convert', async (req, res, next) => {
     try {
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
@@ -207,7 +229,8 @@ router.post('/:id/convert', async (req, res, next) => {
 router.post('/:id/duplicate', async (req, res, next) => {
     try {
         const orig = await prisma.quote.findUnique({ where: { id: req.params.id }, include: { items: true } })
-        if (!orig || (orig.createdById !== req.user.id && orig.assignedToId !== req.user.id && orig.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!orig || (isBuyer && orig.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
         const copy = await prisma.quote.create({
             data: {
                 buyerName: orig.buyerName, buyerCompany: orig.buyerCompany, buyerEmail: orig.buyerEmail,
@@ -228,7 +251,8 @@ router.patch('/:id', async (req, res, next) => {
     try {
         const { status, assignedToId, internalNotes } = req.body
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         const quote = await prisma.quote.update({
             where: { id: req.params.id },
@@ -255,7 +279,8 @@ router.post('/:id/notes', async (req, res, next) => {
         const { note, user: byName } = req.body
         if (!note?.trim()) return res.status(400).json({ error: 'note is required' })
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         const entry = await prisma.quoteHistory.create({
             data: {
@@ -272,7 +297,8 @@ router.post('/:id/notes', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
     try {
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         await prisma.quote.delete({ where: { id: req.params.id } })
         res.json({ success: true })
@@ -283,7 +309,8 @@ router.delete('/:id', async (req, res, next) => {
 router.patch('/:id/archive', async (req, res, next) => {
     try {
         const existing = await prisma.quote.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById !== req.user.id && existing.assignedToId !== req.user.id && existing.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!existing || (isBuyer && existing.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         await prisma.quote.update({ where: { id: req.params.id }, data: { archived: true } })
         res.json({ success: true })
@@ -294,7 +321,7 @@ router.patch('/:id/archive', async (req, res, next) => {
 router.get('/buyers/list', async (req, res, next) => {
     try {
         const buyers = await prisma.customer.findMany({
-            where: { archived: false, createdById: req.user.id },
+            where: { archived: false },
             select: { id: true, name: true, company: true, email: true, country: true, phone: true },
             orderBy: { name: 'asc' }
         })
@@ -309,7 +336,8 @@ router.get('/:id/pdf', async (req, res, next) => {
             where: { id: req.params.id },
             include: { items: true, customer: true }
         })
-        if (!quote || (quote.createdById !== req.user.id && quote.assignedToId !== req.user.id && quote.createdById !== null)) return res.status(404).json({ error: 'Quote not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!quote || (isBuyer && quote.buyerEmail !== req.user.email)) return res.status(404).json({ error: 'Quote not found' })
 
         const brand = await getBrandSettings(req.user.id)
         const { quoteEmailHtml: htmlFn } = await import('../lib/mailer.js')

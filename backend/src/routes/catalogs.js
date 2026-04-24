@@ -7,8 +7,13 @@ router.use(requireAuth)
 
 router.get('/', async (req, res, next) => {
     try {
+        const isBuyer = req.user.role === 'VIEWER'
+        const baseWhere = isBuyer 
+            ? { status: { in: ['Published', 'Approved'] } } 
+            : {}
+            
         const catalogs = await prisma.catalog.findMany({ 
-            where: { createdById: req.user.id },
+            where: baseWhere,
             orderBy: { updatedAt: 'desc' } 
         })
         res.json(catalogs)
@@ -18,7 +23,9 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const catalog = await prisma.catalog.findUnique({ where: { id: req.params.id } })
-        if (!catalog || (catalog.createdById && catalog.createdById !== req.user.id)) return res.status(404).json({ error: 'Catalog not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!catalog) return res.status(404).json({ error: 'Catalog not found' })
+        if (isBuyer && !['Published', 'Approved'].includes(catalog.status)) return res.status(404).json({ error: 'Catalog not available' })
         res.json(catalog)
     } catch (err) { next(err) }
 })
@@ -43,7 +50,7 @@ router.put('/:id', async (req, res, next) => {
     try {
         const { name, description, type, template, source, audience, toggles, status, items, sections } = req.body
         const existing = await prisma.catalog.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Catalog not found' })
+        if (!existing) return res.status(404).json({ error: 'Catalog not found' })
 
         const catalog = await prisma.catalog.update({
             where: { id: req.params.id },
@@ -63,7 +70,7 @@ router.put('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
     try {
         const existing = await prisma.catalog.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Catalog not found' })
+        if (!existing) return res.status(404).json({ error: 'Catalog not found' })
 
         await prisma.catalog.delete({ where: { id: req.params.id } })
         res.json({ success: true })
@@ -77,7 +84,9 @@ router.get('/:id/pdf', async (req, res, next) => {
             where: { id: req.params.id },
             include: { products: { include: { product: { include: { media: { take: 1 } } } } } }
         })
-        if (!catalog || (catalog.createdById && catalog.createdById !== req.user.id)) return res.status(404).json({ error: 'Catalog not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!catalog) return res.status(404).json({ error: 'Catalog not found' })
+        if (isBuyer && !['Published', 'Approved'].includes(catalog.status)) return res.status(404).json({ error: 'Catalog not available' })
 
         const items = catalog.products || []
         const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>

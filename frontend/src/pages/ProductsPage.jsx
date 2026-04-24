@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { productService } from '../services/productService'
 import { catalogService } from '../services/catalogService'
+import api from '../lib/api'
 import { PageHeader } from '../components/PageHeader'
 import { DataTable } from '../components/DataTable'
 import { Button } from '../components/ui/Button'
@@ -27,8 +28,11 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { RightDrawer } from '../components/RightDrawer'
 import { useQuery as useRQ } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useAuthStore } from '../store/authStore'
 
 export function ProductsPage() {
+  const user = useAuthStore(s => s.user)
+  const isBuyer = user?.role === 'VIEWER'
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [globalFilter, setGlobalFilter] = useState('')
@@ -50,6 +54,26 @@ export function ProductsPage() {
     queryFn: productService.getProducts,
   })
   const catalogsQ = useRQ({ queryKey: ['catalogs'], queryFn: catalogService.getCatalogs })
+  const wishlistQ = useQuery({ queryKey: ['wishlist'], queryFn: () => api('/wishlist'), enabled: isBuyer })
+  const wishlistItems = Array.isArray(wishlistQ.data) ? wishlistQ.data : []
+  const wishlistProductIds = new Set(wishlistItems.map(w => w.productId))
+
+  const toggleWishlist = async (e, productId) => {
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      if (wishlistProductIds.has(productId)) {
+        await api(`/wishlist/${productId}`, { method: 'DELETE' })
+        toast.success('Removed from wishlist')
+      } else {
+        await api('/wishlist', { method: 'POST', body: JSON.stringify({ productId }) })
+        toast.success('Added to wishlist')
+      }
+      queryClient.invalidateQueries({ queryKey: ['wishlist'] })
+    } catch {
+      toast.error('Failed to update wishlist')
+    }
+  }
 
   const columns = [
     {
@@ -154,6 +178,7 @@ export function ProductsPage() {
     {
       id: 'actions',
       cell: ({ row }) => {
+        if (isBuyer) return null
         return (
           <div className="text-right">
             <Button
@@ -185,41 +210,47 @@ export function ProductsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <PageHeader
           title="Products"
-          description="Manage your product catalog, pricing, and variant inventory."
+          description={isBuyer ? "Browse our entire product catalog." : "Manage your product catalog, pricing, and variant inventory."}
         />
         <div className="flex items-center gap-3">
-          <Button variant="secondary" className="hidden sm:flex"><Download className="mr-2 h-4 w-4" /> Export</Button>
-          <Button
-            variant="secondary"
-            className="hidden md:flex"
-            onClick={() => {
-              if (selected.length === 0) {
-                toast.message('Select at least one product to add to a catalog')
-                return
-              }
-              setAddOpen(true)
-            }}
-          >
-            <Book className="mr-2 h-4 w-4" /> Add to Catalog
-          </Button>
-          <Link to="/products/new">
-            <Button><Plus className="mr-2 h-4 w-4" /> Add Product</Button>
-          </Link>
+          {!isBuyer && (
+            <>
+              <Button variant="secondary" className="hidden sm:flex"><Download className="mr-2 h-4 w-4" /> Export</Button>
+              <Button
+                variant="secondary"
+                className="hidden md:flex"
+                onClick={() => {
+                  if (selected.length === 0) {
+                    toast.message('Select at least one product to add to a catalog')
+                    return
+                  }
+                  setAddOpen(true)
+                }}
+              >
+                <Book className="mr-2 h-4 w-4" /> Add to Catalog
+              </Button>
+              <Link to="/products/new">
+                <Button><Plus className="mr-2 h-4 w-4" /> Add Product</Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s, i) => (
-          <Card key={i} className="p-4 flex flex-col justify-center">
-            <p className="text-sm font-medium text-gray-500 mb-1">{s.label}</p>
-            {s.loading ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <p className="text-2xl font-semibold">{s.value}</p>
-            )}
-          </Card>
-        ))}
-      </div>
+      {!isBuyer && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {stats.map((s, i) => (
+            <Card key={i} className="p-4 flex flex-col justify-center">
+              <p className="text-sm font-medium text-gray-500 mb-1">{s.label}</p>
+              {s.loading ? (
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <p className="text-2xl font-semibold">{s.value}</p>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card className="p-0 border-none shadow-sm bg-transparent">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
@@ -239,12 +270,61 @@ export function ProductsPage() {
           </div>
         </div>
 
-        <DataTable
-          columns={columns}
-          data={products || []}
-          loading={isLoading}
-          onRowSelectionChange={(rows) => setSelected(rows)}
-        />
+        {isBuyer ? (
+          <div className="mt-6">
+            {isLoading ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <Skeleton key={i} className="h-64 rounded-2xl" />)}
+              </div>
+            ) : (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                {(products || []).filter(p => !globalFilter || p.name.toLowerCase().includes(globalFilter.toLowerCase()) || p.sku.toLowerCase().includes(globalFilter.toLowerCase())).map(p => (
+                  <Link key={p.id} to={`/products/${p.id}`} className="group rounded-2xl border border-border-subtle overflow-hidden bg-white hover:shadow-lg transition-shadow flex flex-col">
+                    <div className="aspect-square bg-gray-100 overflow-hidden relative">
+                      {p.images && p.images[0]
+                        ? <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        : <div className="w-full h-full flex items-center justify-center text-5xl">📦</div>
+                      }
+                      <button
+                        onClick={(e) => toggleWishlist(e, p.id)}
+                        className={`absolute top-3 right-3 h-8 w-8 rounded-full flex items-center justify-center shadow-sm backdrop-blur-sm transition-colors ${wishlistProductIds.has(p.id) ? 'bg-red-500 text-white' : 'bg-white/80 text-gray-500 hover:text-red-500'}`}
+                      >
+                        ♥
+                      </button>
+                    </div>
+                    <div className="p-4 flex flex-col flex-1">
+                      <div className="text-xs text-content-tertiary mb-1">{p.category?.name || 'Uncategorized'}</div>
+                      <div className="text-sm font-bold text-content-primary mb-1 line-clamp-1">{p.name}</div>
+                      <div className="text-xs text-content-tertiary font-mono mb-3">{p.sku}</div>
+                      <div className="mt-auto flex items-center justify-between">
+                        {p.price && <div className="text-sm font-bold text-brand">${p.price.toFixed(2)}</div>}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 text-xs font-medium px-3"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            navigate(`/buyer/request-quote?productId=${p.id}`)
+                          }}
+                        >
+                          Request Quote
+                        </Button>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <DataTable
+            columns={columns}
+            data={products || []}
+            loading={isLoading}
+            onRowSelectionChange={(rows) => setSelected(rows)}
+          />
+        )}
       </Card>
 
       <RightDrawer

@@ -9,19 +9,23 @@ import { HelpCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 // Role hierarchy — higher index = more access
 const ROLE_RANK = { VIEWER: 0, DESIGNER: 1, SALES: 2, MERCHANDISER: 3, ADMIN: 4 }
 const ITEM_MIN_ROLE = {
-  // Operations (sales & above)
-  Orders: 'SALES', Quotes: 'SALES', Customers: 'SALES',
-  // Imports & AI (merchandiser+)
-  Imports: 'MERCHANDISER', 'AI Studio': 'MERCHANDISER', 'Media Library': 'DESIGNER',
-  // Catalogs / Showrooms (designer+)
-  Catalogs: 'DESIGNER', Showrooms: 'DESIGNER',
-  // Settings visible to all, but sub-items gated by navigation.js
+  // Operations
+  Quotes: 'SALES', Customers: 'SALES', Imports: 'MERCHANDISER',
+  // Catalogs / Showrooms
+  Showrooms: 'DESIGNER',
 }
 
 function hasAccess(itemLabel, userRole) {
   const minRole = ITEM_MIN_ROLE[itemLabel]
   if (!minRole) return true
-  const userRank = ROLE_RANK[userRole?.toUpperCase?.()] ?? 4 // default full access if role unknown
+  
+  // Specific buyer overrides
+  if (userRole === 'VIEWER') {
+    const allowedForBuyer = ['Dashboard', 'Catalogs', 'Orders', 'Settings', 'Wishlist', 'Products', 'AI Studio', 'Media Library']
+    return allowedForBuyer.includes(itemLabel)
+  }
+
+  const userRank = ROLE_RANK[userRole?.toUpperCase?.()] ?? 4
   const minRank = ROLE_RANK[minRole] ?? 0
   return userRank >= minRank
 }
@@ -68,12 +72,25 @@ export function Sidebar() {
   const userRole = user?.role?.toUpperCase?.() || 'ADMIN'
 
   // Filter nav items by role
-  const allowed = NAV_ITEMS.filter(i => hasAccess(i.label, userRole))
+  const allowed = NAV_ITEMS.filter(i => {
+    if (userRole === 'VIEWER') {
+      const allowedForBuyer = ['Dashboard', 'Catalogs', 'Orders', 'Settings', 'Wishlist', 'Products', 'AI Studio', 'Media Library']
+      return allowedForBuyer.includes(i.label)
+    }
+    return hasAccess(i.label, userRole)
+  }).map(i => {
+    if (userRole === 'VIEWER') {
+      if (i.label === 'Catalogs') return { ...i, path: '/buyer/catalogs' }
+      if (i.label === 'Showrooms') return { ...i, path: '/buyer/showrooms' }
+      if (i.label === 'Dashboard') return { ...i, path: '/buyer/home' }
+    }
+    return i
+  })
 
   const primaryItems = allowed.filter(i => ['Dashboard', 'Products', 'Categories', 'Collections', 'Inventory'].includes(i.label))
   const marketingItems = allowed.filter(i => ['Catalogs', 'Showrooms', 'AI Studio', 'Media Library'].includes(i.label))
   const operationsItems = allowed.filter(i => ['Orders', 'Quotes', 'Customers', 'Imports'].includes(i.label))
-  const systemItems = allowed.filter(i => ['Analytics', 'Activity', 'Settings', 'Help'].includes(i.label))
+  const systemItems = allowed.filter(i => ['Analytics', 'Activity', 'Settings', 'Help', 'Wishlist'].includes(i.label))
 
   const NavSection = ({ label, items }) => {
     if (!items.length) return null

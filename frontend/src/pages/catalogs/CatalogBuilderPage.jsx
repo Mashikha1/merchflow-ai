@@ -264,6 +264,32 @@ export function CatalogBuilderPage() {
         }
     }
 
+    const handleSaveDraft = async () => {
+        try {
+            await catalogService.updateCatalog(catalog.id, {
+                status: 'Draft',
+                themeColor: themeColor
+            })
+            setCatalog(prev => ({ ...prev, status: 'Draft', themeColor }))
+            toast.success('Draft saved')
+        } catch (error) {
+            toast.error('Failed to save draft')
+        }
+    }
+
+    const handlePublish = async () => {
+        try {
+            await catalogService.updateCatalog(catalog.id, {
+                status: 'Published',
+                themeColor: themeColor
+            })
+            setCatalog(prev => ({ ...prev, status: 'Published', themeColor }))
+            toast.success('Catalog published globally')
+        } catch (error) {
+            toast.error('Failed to publish catalog')
+        }
+    }
+
     const selectThemeColor = (color) => {
         setThemeColor(color)
         setCatalog(prev => ({ ...prev, themeColor: color }))
@@ -446,7 +472,8 @@ export function CatalogBuilderPage() {
                         <button className="p-1.5 px-3 text-content-tertiary hover:text-content-primary text-xs font-medium flex items-center transition-colors"><Smartphone size={14} className="mr-1.5" /> Mobile</button>
                     </div>
                     <Button variant="outline" className="border-border-subtle shadow-sm bg-white hover:bg-app-hover" onClick={handleGeneratePdf}><Download className="mr-2 h-4 w-4" /> Export PDF</Button>
-                    <Button className="shadow-md"><Save className="mr-2 h-4 w-4" /> Save Draft</Button>
+                    <Button className="shadow-md bg-white text-content-primary border border-border-subtle hover:bg-gray-50" onClick={handleSaveDraft}><Save className="mr-2 h-4 w-4" /> Save Draft</Button>
+                    <Button className="shadow-md bg-brand text-white hover:bg-brand-dark" onClick={handlePublish}><Sparkles className="mr-2 h-4 w-4" /> Publish</Button>
                 </div>
             </div>
             )}

@@ -8,8 +8,13 @@ router.use(requireAuth)
 // GET /api/orders  – orders = quotes with CONVERTED_TO_ORDER status
 router.get('/', async (req, res, next) => {
     try {
+        const isBuyer = req.user.role === 'VIEWER'
+        const baseWhere = isBuyer 
+            ? { status: 'CONVERTED_TO_ORDER', archived: false, buyerEmail: req.user.email }
+            : { status: 'CONVERTED_TO_ORDER', archived: false, createdById: req.user.id }
+
         const orders = await prisma.quote.findMany({
-            where: { status: 'CONVERTED_TO_ORDER', archived: false },
+            where: baseWhere,
             include: {
                 items: true,
                 customer: true,
@@ -26,7 +31,11 @@ router.get('/', async (req, res, next) => {
         }
 
         // Summary stats
-        const allQuotes = await prisma.quote.findMany({ where: { archived: false }, include: { items: true } })
+        const allQuotesWhere = isBuyer 
+            ? { archived: false, buyerEmail: req.user.email } 
+            : { archived: false }
+        
+        const allQuotes = await prisma.quote.findMany({ where: allQuotesWhere, include: { items: true } })
         const totalRevenuePotential = allQuotes.reduce((a, q) => {
             const t = computeTotals(q.items)
             return a + t.total
@@ -35,9 +44,9 @@ router.get('/', async (req, res, next) => {
         res.json({
             orders: orders.map(o => ({ ...o, totals: computeTotals(o.items) })),
             summary: {
-                total: await prisma.quote.count({ where: { archived: false } }),
+                total: await prisma.quote.count({ where: allQuotesWhere }),
                 newOrders: orders.length,
-                pendingQuotes: await prisma.quote.count({ where: { status: { in: ['SENT', 'NEGOTIATING'] }, archived: false } }),
+                pendingQuotes: await prisma.quote.count({ where: { ...allQuotesWhere, status: { in: ['SENT', 'NEGOTIATING'] } } }),
                 sampleRequests: 0,
                 revenuePotential: Math.round(totalRevenuePotential)
             }

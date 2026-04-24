@@ -7,8 +7,13 @@ router.use(requireAuth)
 
 router.get('/', async (req, res, next) => {
     try {
+        const isBuyer = req.user.role === 'VIEWER'
+        const baseWhere = isBuyer 
+            ? { status: 'Published' } 
+            : {}
+
         const showrooms = await prisma.showroom.findMany({
-            where: { createdById: req.user.id },
+            where: baseWhere,
             orderBy: { updatedAt: 'desc' }
         })
         res.json(showrooms)
@@ -18,7 +23,9 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const s = await prisma.showroom.findUnique({ where: { id: req.params.id } })
-        if (!s || (s.createdById && s.createdById !== req.user.id)) return res.status(404).json({ error: 'Showroom not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!s) return res.status(404).json({ error: 'Showroom not found' })
+        if (isBuyer && s.status !== 'Published') return res.status(404).json({ error: 'Showroom not available' })
         res.json(s)
     } catch (err) { next(err) }
 })
@@ -26,7 +33,9 @@ router.get('/:id', async (req, res, next) => {
 router.get('/slug/:slug', async (req, res, next) => {
     try {
         const s = await prisma.showroom.findUnique({ where: { slug: req.params.slug } })
-        if (!s || (s.createdById && s.createdById !== req.user.id)) return res.status(404).json({ error: 'Showroom not found' })
+        const isBuyer = req.user.role === 'VIEWER'
+        if (!s) return res.status(404).json({ error: 'Showroom not found' })
+        if (isBuyer && s.status !== 'Published') return res.status(404).json({ error: 'Showroom not available' })
         res.json(s)
     } catch (err) { next(err) }
 })
@@ -44,7 +53,7 @@ router.put('/:id', async (req, res, next) => {
     try {
         const { name, slug, description, status, coverImage, settings } = req.body
         const existing = await prisma.showroom.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Showroom not found' })
+        if (!existing) return res.status(404).json({ error: 'Showroom not found' })
 
         const showroom = await prisma.showroom.update({
             where: { id: req.params.id },
@@ -57,7 +66,7 @@ router.put('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
     try {
         const existing = await prisma.showroom.findUnique({ where: { id: req.params.id } })
-        if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Showroom not found' })
+        if (!existing) return res.status(404).json({ error: 'Showroom not found' })
 
         await prisma.showroom.delete({ where: { id: req.params.id } })
         res.json({ success: true })
