@@ -44,7 +44,7 @@ function normalizeObject(obj) {
 }
 
 // ─── Request helper ────────────────────────────────────────────────────────────
-async function request(method, path, body, options = {}) {
+async function request(method, path, body) {
     const token = getToken()
     const isFormData = body instanceof FormData
     const headers = isFormData ? {} : { 'Content-Type': 'application/json' }
@@ -78,28 +78,16 @@ async function request(method, path, body, options = {}) {
         throw e
     }
 
-    if (options.responseType === 'blob') {
-        const blob = await res.blob()
-        return blob
-    }
-
-    const text = await res.text()
-    if (!text) return null
-    
-    try {
-        const data = JSON.parse(text)
-        return normalizeObject(data)
-    } catch (e) {
-        return text
-    }
+    const data = await res.json()
+    return normalizeObject(data)
 }
 
 export const api = {
-    get: (path, options) => request('GET', path, undefined, options),
-    post: (path, body, options) => request('POST', path, body, options),
-    put: (path, body, options) => request('PUT', path, body, options),
-    patch: (path, body, options) => request('PATCH', path, body, options),
-    delete: (path, options) => request('DELETE', path, undefined, options),
+    get: (path) => request('GET', path),
+    post: (path, body) => request('POST', path, body),
+    put: (path, body) => request('PUT', path, body),
+    patch: (path, body) => request('PATCH', path, body),
+    delete: (path) => request('DELETE', path),
 }
 
 // Default export: callable shorthand — api('/path') → GET, api('/path', { method, body }) → custom

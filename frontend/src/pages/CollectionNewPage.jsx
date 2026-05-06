@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/ui/Card'
@@ -16,11 +16,9 @@ import {
 } from 'lucide-react'
 
 export function CollectionNewPage() {
-    const { id } = useParams()
     const navigate = useNavigate()
     const qc = useQueryClient()
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const isEdit = !!id
 
     const [formData, setFormData] = useState({
         name: '',
@@ -35,33 +33,6 @@ export function CollectionNewPage() {
         showInShowroom: true,
         lookbookEligible: true
     })
-
-    const { data: collection, isLoading: isFetching } = useQuery({
-        queryKey: ['collection', id],
-        queryFn: () => api.get(`/collections/${id}`),
-        enabled: isEdit,
-    })
-
-    useEffect(() => {
-        if (collection) {
-            setFormData({
-                name: collection.name || '',
-                slug: collection.slug || '',
-                description: collection.description || '',
-                status: collection.status || 'Active',
-                collectionType: collection.type || 'Seasonal Drop',
-                coverImage: collection.coverImage || null,
-                productSource: collection.rules?.productSource || 'Manual',
-                audience: collection.rules?.audience || 'B2B Wholesale',
-                showInShowroom: collection.rules?.showInShowroom ?? true,
-                showInCatalog: collection.rules?.showInCatalog ?? true,
-                lookbookEligible: true
-            })
-            if (collection.products) {
-                setSelectedProducts(collection.products)
-            }
-        }
-    }, [collection])
 
     const [formErrors, setFormErrors] = useState({})
     const [selectedProducts, setSelectedProducts] = useState([])
@@ -89,8 +60,6 @@ export function CollectionNewPage() {
         productService.getProducts().then(setAllProducts)
     }, [])
 
-    // Remove localStorage draft logic as it interferes with blob URLs
-    /*
     useEffect(() => {
         if (formData.coverImage) {
             try {
@@ -102,7 +71,6 @@ export function CollectionNewPage() {
             }
         }
     }, [formData.coverImage])
-    */
     const handleChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }))
         if (formErrors[field]) {
@@ -121,49 +89,31 @@ export function CollectionNewPage() {
 
     const createM = useMutation({
         mutationFn: async (isDraft) => {
-            const payload = {
+            // 1. Create the collection
+            const collection = await api.post('/collections', {
                 name: formData.name || 'Untitled Collection',
-                slug: formData.slug,
                 description: formData.description,
                 type: formData.collectionType,
                 status: isDraft ? 'Draft' : formData.status,
                 layout: 'grid',
-                coverImage: formData.coverImage,
-                rules: {
-                    productSource: formData.productSource,
-                    audience: formData.audience,
-                    showInShowroom: formData.showInShowroom,
-                    showInCatalog: formData.showInCatalog,
-                }
-            }
-            
-            let result;
-            if (isEdit) {
-                result = await api.put(`/collections/${id}`, payload)
-            } else {
-                result = await api.post('/collections', payload)
-            }
-            
+            })
             // 2. If products were manually selected, associate them
-            if (selectedProducts.length > 0 && result.id) {
-                // For edit, we might want to clear existing ones first or handle it differently
-                // But for now let's just add them
+            if (selectedProducts.length > 0 && collection.id) {
                 await Promise.allSettled(
                     selectedProducts.map(p =>
-                        api.post(`/collections/${result.id}/products`, { productId: p.id })
+                        api.post(`/collections/${collection.id}/products`, { productId: p.id })
                     )
                 )
             }
-            return result
+            return collection
         },
         onSuccess: (col, isDraft) => {
             qc.invalidateQueries({ queryKey: ['collections'] })
-            qc.invalidateQueries({ queryKey: ['collection', id] })
-            toast.success(`Collection ${isDraft ? 'saved as draft' : (isEdit ? 'updated' : 'created')} successfully`)
+            toast.success(`Collection ${isDraft ? 'saved as draft' : 'created'} successfully`)
             navigate('/collections')
         },
         onError: (err) => {
-            toast.error(`Failed to ${isEdit ? 'update' : 'create'} collection: ` + (err.message || 'Unknown error'))
+            toast.error('Failed to create collection: ' + (err.message || 'Unknown error'))
         }
     })
 
@@ -224,14 +174,14 @@ export function CollectionNewPage() {
             {/* Header & Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-20 bg-app-body/80 backdrop-blur-md pt-4 pb-4 border-b border-border-subtle/50">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-content-primary">{isEdit ? 'Edit Collection' : 'Create Collection'}</h1>
-                    <p className="text-[13px] text-content-secondary mt-1">{isEdit ? 'Update your product grouping details and visibility.' : 'Configure a new product grouping for campaigns or seasons.'}</p>
+                    <h1 className="text-2xl font-bold tracking-tight text-content-primary">Create Collection</h1>
+                    <p className="text-[13px] text-content-secondary mt-1">Configure a new product grouping for campaigns or seasons.</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <Button variant="outline" onClick={() => navigate('/collections')} disabled={createM.isPending}>Cancel</Button>
-                    {!isEdit && <Button variant="secondary" onClick={() => handleSave(true)} disabled={createM.isPending}>Save Draft</Button>}
+                    <Button variant="secondary" onClick={() => handleSave(true)} disabled={createM.isPending}>Save Draft</Button>
                     <Button onClick={() => handleSave(false)} disabled={createM.isPending}>
-                        {createM.isPending ? (isEdit ? 'Updating…' : 'Creating…') : (isEdit ? 'Update Collection' : 'Create Collection')}
+                        {createM.isPending ? 'Creating…' : 'Create Collection'}
                     </Button>
                 </div>
             </div>
@@ -333,62 +283,9 @@ export function CollectionNewPage() {
                         {formData.productSource === 'Smart Rules' && (
                             <div className="p-6 border border-border-subtle rounded-xl bg-app-card-muted text-center flex flex-col items-center">
                                 <Sparkles size={32} className="text-brand mb-3 opacity-80" />
-                                <h5 className="text-[14px] font-bold text-content-primary mb-1">Configure Smart Rules</h5>
-                                <p className="text-[12px] text-content-secondary max-w-xs mb-4">Define logic to automatically pull products matching specific conditions.</p>
-                                <div className="w-full space-y-4 text-left">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-content-tertiary uppercase mb-1.5">Condition</label>
-                                            <select className="w-full h-9 rounded-lg border border-border-subtle bg-white px-2 text-[12px]">
-                                                <option>Product Title</option>
-                                                <option>Product Type</option>
-                                                <option>Product Tag</option>
-                                                <option>Price</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-content-tertiary uppercase mb-1.5">Operator</label>
-                                            <select className="w-full h-9 rounded-lg border border-border-subtle bg-white px-2 text-[12px]">
-                                                <option>contains</option>
-                                                <option>equals</option>
-                                                <option>is greater than</option>
-                                                <option>is less than</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <Input placeholder="Enter value..." className="h-9 text-[12px]" />
-                                    <Button size="sm" className="w-full">Add Condition</Button>
-                                </div>
-                            </div>
-                        )}
-
-                        {formData.productSource === 'Category Map' && (
-                            <div className="p-6 border border-border-subtle rounded-xl bg-app-card-muted text-center flex flex-col items-center">
-                                <Package size={32} className="text-brand mb-3 opacity-80" />
-                                <h5 className="text-[14px] font-bold text-content-primary mb-1">Select Category to Map</h5>
-                                <p className="text-[12px] text-content-secondary max-w-xs mb-4">All products in the selected category will automatically appear here.</p>
-                                <select className="w-full h-10 rounded-xl border border-border-subtle bg-white px-3 text-[13px] mb-4">
-                                    <option>Select a category...</option>
-                                    <option>T-Shirts</option>
-                                    <option>Outerwear</option>
-                                    <option>Accessories</option>
-                                </select>
-                                <Button size="sm" className="w-full">Sync Category</Button>
-                            </div>
-                        )}
-
-                        {formData.productSource === 'Saved Filters' && (
-                            <div className="p-6 border border-border-subtle rounded-xl bg-app-card-muted text-center flex flex-col items-center">
-                                <Filter size={32} className="text-brand mb-3 opacity-80" />
-                                <h5 className="text-[14px] font-bold text-content-primary mb-1">Choose Saved Filter</h5>
-                                <p className="text-[12px] text-content-secondary max-w-xs mb-4">Use a previously saved inventory view to populate this collection.</p>
-                                <select className="w-full h-10 rounded-xl border border-border-subtle bg-white px-3 text-[13px] mb-4">
-                                    <option>Select a filter...</option>
-                                    <option>New Arrivals (Last 30 Days)</option>
-                                    <option>High Margin Items</option>
-                                    <option>Best Sellers</option>
-                                </select>
-                                <Button size="sm" className="w-full">Apply Filter</Button>
+                                <h5 className="text-[14px] font-bold text-content-primary mb-1">Configure Rules Setup</h5>
+                                <p className="text-[12px] text-content-secondary max-w-xs mb-4">Define logic to automatically funnel inventory into this collection upon ingestion.</p>
+                                <Button size="sm">Configure Automation</Button>
                             </div>
                         )}
                     </Card>
@@ -487,27 +384,12 @@ export function CollectionNewPage() {
                                     type="file"
                                     accept="image/png,image/jpeg,image/webp"
                                     className="hidden"
-                                    onChange={async (e) => {
+                                    onChange={(e) => {
                                         const f = e.target.files?.[0]
                                         if (!f) return
-                                        
-                                        // 1. Show local preview immediately
-                                        const localUrl = URL.createObjectURL(f)
-                                        handleChange('coverImage', localUrl)
-                                        
-                                        // 2. Upload to server
-                                        const formData = new FormData()
-                                        formData.append('files', f)
-                                        try {
-                                            const res = await api.post('/media/upload', formData)
-                                            if (res?.[0]?.url) {
-                                                handleChange('coverImage', res[0].url)
-                                                toast.success('Banner uploaded successfully')
-                                            }
-                                        } catch (err) {
-                                            toast.error('Failed to upload image to server')
-                                            console.error(err)
-                                        }
+                                        const url = URL.createObjectURL(f)
+                                        handleChange('coverImage', url)
+                                        toast.success('Banner uploaded')
                                     }}
                                 />
                             </div>
@@ -524,27 +406,12 @@ export function CollectionNewPage() {
                                         type="file"
                                         accept="image/png,image/jpeg,image/webp"
                                         className="hidden"
-                                        onChange={async (e) => {
+                                        onChange={(e) => {
                                             const f = e.target.files?.[0]
                                             if (!f) return
-                                            
-                                            // 1. Show local preview immediately
-                                            const localUrl = URL.createObjectURL(f)
-                                            handleChange('coverImage', localUrl)
-                                            
-                                            // 2. Upload to server
-                                            const formData = new FormData()
-                                            formData.append('files', f)
-                                            try {
-                                                const res = await api.post('/media/upload', formData)
-                                                if (res?.[0]?.url) {
-                                                    handleChange('coverImage', res[0].url)
-                                                    toast.success('Banner replaced successfully')
-                                                }
-                                            } catch (err) {
-                                                toast.error('Failed to upload image to server')
-                                                console.error(err)
-                                            }
+                                            const url = URL.createObjectURL(f)
+                                            handleChange('coverImage', url)
+                                            toast.success('Banner replaced')
                                         }}
                                     />
                                 </div>

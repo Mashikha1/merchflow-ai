@@ -5,21 +5,20 @@ import { requireAuth } from '../middleware/auth.js'
 const router = Router()
 router.use(requireAuth)
 
-const hasTransientBlobImage = (images) =>
-    Array.isArray(images) && images.some((img) => typeof img === 'string' && img.startsWith('blob:'))
-
 // GET /api/products
 router.get('/', async (req, res, next) => {
     try {
         const { search, status, categoryId, collectionId } = req.query
         const isBuyer = req.user.role === 'VIEWER'
-        const baseWhere = isBuyer 
-            ? { status: 'ACTIVE' } 
-            : {}
+
+        // Buyers see ALL active products (marketplace); sellers see only their own
+        const ownerFilter = isBuyer
+            ? { status: 'ACTIVE' }
+            : { createdById: req.user.id }
 
         const products = await prisma.product.findMany({
             where: {
-                ...baseWhere,
+                ...ownerFilter,
                 ...(search && {
                     OR: [
                         { name: { contains: search, mode: 'insensitive' } },
@@ -47,6 +46,9 @@ router.get('/:id', async (req, res, next) => {
         const isBuyer = req.user.role === 'VIEWER'
         if (!product) return res.status(404).json({ error: 'Product not found' })
         if (isBuyer && product.status !== 'ACTIVE') return res.status(404).json({ error: 'Product not available' })
+        // Sellers can only access their own products
+        if (!isBuyer && product.createdById && product.createdById !== req.user.id)
+            return res.status(404).json({ error: 'Product not found' })
         res.json(product)
     } catch (err) { next(err) }
 })
@@ -56,9 +58,6 @@ router.post('/', async (req, res, next) => {
     try {
         const { sku, name, description, categoryId, collectionId, price, cost, stock, status, images, tags } = req.body
         if (!sku || !name) return res.status(400).json({ error: 'SKU and name required' })
-        if (hasTransientBlobImage(images)) {
-            return res.status(400).json({ error: 'Invalid product images. Please upload images and try again.' })
-        }
 
         const product = await prisma.product.create({
             data: {
@@ -66,17 +65,9 @@ router.post('/', async (req, res, next) => {
                 price: price || 0, cost, stock: stock || 0,
                 status: status?.toUpperCase() || 'DRAFT',
                 images: images || [], tags: tags || [],
-                createdById: req.user.id,
-                inventoryItems: {
-                    create: {
-                        location: 'Main Hub',
-                        onHand: stock || 0,
-                        reserved: 0,
-                        incoming: 0
-                    }
-                }
+                createdById: req.user.id
             },
-            include: { category: true, collection: true, inventoryItems: true }
+            include: { category: true, collection: true }
         })
 
         res.status(201).json(product)
@@ -89,9 +80,6 @@ router.put('/:id', async (req, res, next) => {
         const { sku, name, description, categoryId, collectionId, price, cost, stock, status, images, tags } = req.body
         const existing = await prisma.product.findUnique({ where: { id: req.params.id } })
         if (!existing) return res.status(404).json({ error: 'Product not found' })
-        if (hasTransientBlobImage(images)) {
-            return res.status(400).json({ error: 'Invalid product images. Please upload images and try again.' })
-        }
 
         const product = await prisma.product.update({
             where: { id: req.params.id },

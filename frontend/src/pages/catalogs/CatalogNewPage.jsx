@@ -24,7 +24,7 @@ export function CatalogNewPage() {
                 description="Choose a starting point for your presentation asset."
             />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8 max-w-2xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
                 <Card
                     className={`p-6 border-2 transition-all cursor-pointer group ${selected === 'lookbook' ? 'border-brand bg-brand-soft/30 ring-4 ring-brand/10' : 'border-transparent hover:border-border-soft'}`}
                     onClick={() => setSelected('lookbook')}
@@ -37,13 +37,25 @@ export function CatalogNewPage() {
                 </Card>
 
                 <Card
-                    className="p-6 border-2 border-transparent opacity-50 cursor-not-allowed bg-gray-50/50"
+                    className={`p-6 border-2 transition-all cursor-pointer group ${selected === 'line-sheet' ? 'border-brand bg-brand-soft/30 ring-4 ring-brand/10' : 'border-transparent hover:border-border-soft'}`}
+                    onClick={() => setSelected('line-sheet')}
                 >
-                    <div className="h-12 w-12 bg-gray-100 rounded-[12px] flex items-center justify-center mb-6 text-gray-400">
-                        <Plus size={24} />
+                    <div className="h-12 w-12 bg-blue-50 rounded-[12px] flex items-center justify-center mb-6 text-blue-600 group-hover:scale-110 transition-transform">
+                        <Layers size={24} />
                     </div>
-                    <h3 className="text-[18px] font-bold text-gray-400 mb-2">Custom Presentation</h3>
-                    <p className="text-[14px] text-gray-400 font-medium">Build your own layout from scratch using our drag-and-drop blocks.</p>
+                    <h3 className="text-[18px] font-bold text-content-primary mb-2">Line Sheet</h3>
+                    <p className="text-[14px] text-content-secondary font-medium">Structured grid format optimal for wholesale buying and product details.</p>
+                </Card>
+
+                <Card
+                    className={`p-6 border-2 transition-all cursor-pointer group ${selected === 'price-list' ? 'border-brand bg-brand-soft/30 ring-4 ring-brand/10' : 'border-transparent hover:border-border-soft'}`}
+                    onClick={() => setSelected('price-list')}
+                >
+                    <div className="h-12 w-12 bg-emerald-50 rounded-[12px] flex items-center justify-center mb-6 text-emerald-600 group-hover:scale-110 transition-transform">
+                        <FileSignature size={24} />
+                    </div>
+                    <h3 className="text-[18px] font-bold text-content-primary mb-2">Price List</h3>
+                    <p className="text-[14px] text-content-secondary font-medium">Data-rich table views designed specifically for distributors and tiered pricing.</p>
                 </Card>
             </div>
 

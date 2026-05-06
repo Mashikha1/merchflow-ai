@@ -66,8 +66,8 @@ export function AITryOnPage() {
     enabled: !!activeJobId,
     queryFn: () => aiService.getJob(activeJobId),
     refetchInterval: (q) => {
-      const s = q.state.data?.status
-      return s === 'completed' || s === 'failed' || s === 'cancelled' ? false : 1200
+      const s = q.state.data?.status?.toLowerCase()
+      return s === 'completed' || s === 'failed' ? false : 2000
     },
   })
 
@@ -86,6 +86,19 @@ export function AITryOnPage() {
       })
       return
     }
+    // Guard against blob URLs — they only exist in browser memory and the backend cannot fetch them
+    if (garmentUrl.startsWith('blob:')) {
+      toast.error('Garment upload in progress', {
+        description: 'Please wait for the garment image to finish uploading to the server before generating.',
+      })
+      return
+    }
+    if (personUrl.startsWith('blob:')) {
+      toast.error('Model upload in progress', {
+        description: 'Please wait for the person image to finish uploading to the server.',
+      })
+      return
+    }
     try {
       const job = await aiService.createTryOn({
         inputProductId: selectedProductId,
@@ -98,8 +111,9 @@ export function AITryOnPage() {
       setStep(4)
       toast.message('Queued', { description: 'AILabTools virtual try-on started.' })
       qc.invalidateQueries({ queryKey: ['ai', 'jobs'] })
-    } catch {
-      toast.error('Could not start job')
+    } catch (err) {
+      const msg = err?.message || 'Unknown error'
+      toast.error('Could not start job', { description: msg })
     }
   }
 

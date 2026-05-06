@@ -14,16 +14,16 @@ router.get('/summary', async (req, res, next) => {
             publishedShowrooms, quoteRequests, pendingAiJobs, catalogCount,
             totalCustomers, completedJobs
         ] = await Promise.all([
-            prisma.product.count(),
-            prisma.product.count({ where: { status: 'ACTIVE' } }),
-            prisma.product.count({ where: { status: 'DRAFT' } }),
-            prisma.product.count({ where: { status: 'LOW_STOCK' } }),
-            prisma.showroom.count({ where: { status: 'Published' } }),
-            prisma.quote.count({ where: { status: { in: ['DRAFT', 'SENT', 'NEGOTIATING'] } } }),
-            prisma.aIJob.count({ where: { status: { in: ['QUEUED', 'PROCESSING'] } } }),
-            prisma.catalog.count(),
-            prisma.customer.count({ where: { archived: false } }),
-            prisma.aIJob.count({ where: { status: 'COMPLETED' } }),
+            prisma.product.count({ where: { createdById: userId } }),
+            prisma.product.count({ where: { createdById: userId, status: 'ACTIVE' } }),
+            prisma.product.count({ where: { createdById: userId, status: 'DRAFT' } }),
+            prisma.product.count({ where: { createdById: userId, status: 'LOW_STOCK' } }),
+            prisma.showroom.count({ where: { createdById: userId, status: 'Published' } }),
+            prisma.quote.count({ where: { createdById: userId, status: { in: ['DRAFT', 'SENT', 'NEGOTIATING'] } } }),
+            prisma.aIJob.count({ where: { createdById: userId, status: { in: ['QUEUED', 'PROCESSING'] } } }),
+            prisma.catalog.count({ where: { createdById: userId } }),
+            prisma.customer.count({ where: { createdById: userId, archived: false } }),
+            prisma.aIJob.count({ where: { createdById: userId, status: 'COMPLETED' } }),
         ])
         res.json({
             totalProducts, activeVariants, draftProducts, lowStockItems,
@@ -33,27 +33,30 @@ router.get('/summary', async (req, res, next) => {
     } catch (err) { next(err) }
 })
 
-// GET /api/dashboard/traffic — real pageview data (last 7 days)
+// GET /api/dashboard/traffic — real pageview data (last 7 days) for user's showrooms
 router.get('/traffic', async (req, res, next) => {
     try {
+        const userId = req.user.id
         const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         const now = new Date()
         const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-        // Note: PageView might not have createdById directly, but Showrooms do.
-        // We'll join or just fetch pageviews for showrooms owned by the user
+        // Only count pageviews for this user's showrooms
         const showrooms = await prisma.showroom.findMany({
+            where: { createdById: userId },
             select: { id: true }
         })
         const showroomIds = showrooms.map(s => s.id)
 
-        const views = await prisma.pageView.findMany({
-            where: { 
-                createdAt: { gte: sevenDaysAgo },
-                showroomId: { in: showroomIds }
-            },
-            select: { createdAt: true, entity: true }
-        })
+        const views = showroomIds.length > 0
+            ? await prisma.pageView.findMany({
+                where: {
+                    createdAt: { gte: sevenDaysAgo },
+                    showroomId: { in: showroomIds }
+                },
+                select: { createdAt: true, entity: true }
+            })
+            : []
 
         // Group by day of week
         const byDay = {}
@@ -75,23 +78,25 @@ router.get('/traffic', async (req, res, next) => {
     } catch (err) { next(err) }
 })
 
-// GET /api/dashboard/activity — recent events feed
+// GET /api/dashboard/activity — recent events feed for this user
 router.get('/activity', async (req, res, next) => {
     try {
         const userId = req.user.id
         const [quotes, imports, aiJobs] = await Promise.all([
             prisma.quote.findMany({
-                where: { archived: false },
+                where: { createdById: userId, archived: false },
                 orderBy: { updatedAt: 'desc' },
                 take: 5,
                 select: { id: true, buyerName: true, buyerCompany: true, status: true, updatedAt: true }
             }),
             prisma.import.findMany({
+                where: { createdById: userId },
                 orderBy: { createdAt: 'desc' },
                 take: 3,
                 select: { id: true, fileName: true, status: true, successRows: true, createdAt: true }
             }),
             prisma.aIJob.findMany({
+                where: { createdById: userId },
                 orderBy: { createdAt: 'desc' },
                 take: 3,
                 select: { id: true, type: true, status: true, createdAt: true, finishedAt: true }
@@ -101,7 +106,7 @@ router.get('/activity', async (req, res, next) => {
         const activity = [
             ...quotes.map(q => ({
                 id: q.id, type: 'quote',
-                title: `Quote ${q.status.toLowerCase()} — ${q.buyerCompany}`,
+                title: `Quote ${q.status.toLowerCase()} — ${q.buyerCompany || q.buyerName}`,
                 subtitle: q.buyerName, at: q.updatedAt, link: '/quotes'
             })),
             ...imports.map(i => ({

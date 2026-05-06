@@ -134,7 +134,6 @@ export function AppRoutes() {
         <Route path="/categories" element={<CategoriesPage />} />
         <Route path="/collections" element={<CollectionsPage />} />
         <Route path="/collections/new" element={<CollectionNewPage />} />
-        <Route path="/collections/edit/:id" element={<CollectionNewPage />} />
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/imports" element={<ImportsPage />} />
         <Route path="/imports/new" element={<ImportWizardPage />} />

@@ -28,9 +28,10 @@ router.post('/', async (req, res, next) => {
     try {
         const { name, slug, description, status, aiEnabled } = req.body
         if (!name || !slug) return res.status(400).json({ error: 'name and slug required' })
-        // Make slug unique per user
-        const userSlug = `${slug}-${req.user.id.substring(0, 6)}`
-        const cat = await prisma.category.create({ data: { name, slug: userSlug, description, status, aiEnabled, createdById: req.user.id } })
+        // Make slug globally unique by appending a short random suffix
+        const { v4: uuidv4 } = await import('uuid')
+        const uniqueSlug = `${slug}-${uuidv4().split('-')[0]}`
+        const cat = await prisma.category.create({ data: { name, slug: uniqueSlug, description, status, aiEnabled, createdById: req.user.id } })
         res.status(201).json(cat)
     } catch (err) { next(err) }
 })

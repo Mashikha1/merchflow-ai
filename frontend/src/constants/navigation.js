@@ -13,6 +13,7 @@ export const NAV_ITEMS = [
   { label: 'Quotes', path: '/quotes', icon: 'quote' },
   { label: 'Customers', path: '/customers', icon: 'users' },
   { label: 'Settings', path: '/settings/profile', icon: 'gear' },
+  { label: 'Wishlist', path: '/buyer/wishlist', icon: 'heart' },
 ]
 
 export const SETTINGS_ITEMS = [

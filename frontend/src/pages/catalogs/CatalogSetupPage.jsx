@@ -18,13 +18,13 @@ export function CatalogSetupPage() {
     const [source, setSource] = useState('manual')
     const [audience, setAudience] = useState('b2b')
     const [toggles, setToggles] = useState({
-        pricing: true,
+        pricing: type === 'price-list',
         variants: true,
-        aiAssets: true,
-        stock: false,
-        moq: false,
-        specs: false,
-        intro: true
+        aiAssets: type === 'lookbook',
+        stock: type !== 'lookbook',
+        moq: type !== 'lookbook',
+        specs: type === 'line-sheet',
+        intro: type === 'lookbook'
     })
     const [template, setTemplate] = useState('blank')
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -63,6 +63,8 @@ export function CatalogSetupPage() {
     }
 
     const getTypeLabel = () => {
+        if (type === 'line-sheet') return 'Line Sheet'
+        if (type === 'price-list') return 'Price List'
         return 'Lookbook'
     }
 

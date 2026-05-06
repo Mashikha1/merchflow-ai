@@ -8,9 +8,9 @@ router.use(requireAuth)
 router.get('/', async (req, res, next) => {
     try {
         const isBuyer = req.user.role === 'VIEWER'
-        const baseWhere = isBuyer 
-            ? { status: 'Published' } 
-            : {}
+        const baseWhere = isBuyer
+            ? { status: 'Published' }
+            : { createdById: req.user.id }
 
         const showrooms = await prisma.showroom.findMany({
             where: baseWhere,
