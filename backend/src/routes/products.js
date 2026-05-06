@@ -10,13 +10,15 @@ router.get('/', async (req, res, next) => {
     try {
         const { search, status, categoryId, collectionId } = req.query
         const isBuyer = req.user.role === 'VIEWER'
-        const baseWhere = isBuyer 
-            ? { status: 'ACTIVE' } 
-            : {}
+
+        // Buyers see ALL active products (marketplace); sellers see only their own
+        const ownerFilter = isBuyer
+            ? { status: 'ACTIVE' }
+            : { createdById: req.user.id }
 
         const products = await prisma.product.findMany({
             where: {
-                ...baseWhere,
+                ...ownerFilter,
                 ...(search && {
                     OR: [
                         { name: { contains: search, mode: 'insensitive' } },
@@ -44,6 +46,9 @@ router.get('/:id', async (req, res, next) => {
         const isBuyer = req.user.role === 'VIEWER'
         if (!product) return res.status(404).json({ error: 'Product not found' })
         if (isBuyer && product.status !== 'ACTIVE') return res.status(404).json({ error: 'Product not available' })
+        // Sellers can only access their own products
+        if (!isBuyer && product.createdById && product.createdById !== req.user.id)
+            return res.status(404).json({ error: 'Product not found' })
         res.json(product)
     } catch (err) { next(err) }
 })

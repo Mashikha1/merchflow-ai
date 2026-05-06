@@ -44,7 +44,7 @@ export function ImportsPage() {
   const navigate = useNavigate()
   const { data: imports, isLoading } = useQuery({
     queryKey: ['imports'],
-    queryFn: importService.getRecentImports
+    queryFn: importService.getImports
   })
 
   const columns = [
@@ -94,8 +94,8 @@ export function ImportsPage() {
       header: 'Date & User',
       cell: ({ row }) => (
         <div>
-          <div className="text-sm text-gray-900">{row.getValue('createdAt')}</div>
-          <div className="text-xs text-gray-500">{row.original.createdBy}</div>
+          <div className="text-sm text-gray-900">{new Date(row.original.createdAt).toLocaleDateString()}</div>
+          <div className="text-xs text-gray-500">{row.original.createdBy?.name || 'Unknown'}</div>
         </div>
       )
     },
@@ -111,6 +111,17 @@ export function ImportsPage() {
     }
   ]
 
+  const handleDownloadSample = () => {
+    const csvContent = "data:text/csv;charset=utf-8,sku,name,category,price,stock,status\nSHIRT-01,Basic T-Shirt,Apparel,19.99,100,ACTIVE\nMUG-02,Coffee Mug,Accessories,9.99,50,ACTIVE"
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement("a")
+    link.setAttribute("href", encodedUri)
+    link.setAttribute("download", "sample_import.csv")
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -119,34 +130,11 @@ export function ImportsPage() {
           description="Bring products, inventory, and categories into MerchFlow."
         />
         <div className="flex items-center gap-3">
-          <Button variant="outline"><Download className="mr-2 h-4 w-4" /> Download Sample CSV</Button>
+          <Button variant="outline" onClick={handleDownloadSample}><Download className="mr-2 h-4 w-4" /> Download Sample CSV</Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <SourceCard
-          title="CSV Upload"
-          description="Standard tabular data import with visual mapping."
-          icon={FileText}
-          highlight
-        />
-        <SourceCard
-          title="Excel Upload"
-          description="Support for .xlsx files with multiple sheets."
-          icon={FileSpreadsheet}
-        />
-        <SourceCard
-          title="Shopify Sync"
-          description="Connect store API to pull live product catalog."
-          icon={ShoppingCart}
-          badge="Active"
-        />
-        <SourceCard
-          title="WooCommerce"
-          description="Automated synchronization for WP stores."
-          icon={Store}
-        />
-      </div>
+
 
       <Card className="p-0 border-none shadow-sm bg-transparent">
         <div className="flex items-center justify-between mb-4">

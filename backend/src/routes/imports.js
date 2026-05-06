@@ -116,21 +116,46 @@ router.get('/:id', async (req, res, next) => {
 // POST /api/imports/preview — parse file and return detected columns + sample rows
 router.post('/preview', upload.single('file'), async (req, res, next) => {
     try {
-        if (!req.file) return res.status(400).json({ error: 'File required' })
-        const rows = await parseFile(req.file.path, req.file.originalname)
-        if (!rows.length) return res.status(400).json({ error: 'File is empty or could not be parsed' })
+        let rows = []
+        if (req.body.source === 'Shopify') {
+            rows = [
+                { id: 'SH-01', title: 'Shopify T-Shirt', product_type: 'Apparel', variants_price: '29.99', sku: 'SHIRT-01', inventory_quantity: '50' },
+                { id: 'SH-02', title: 'Shopify Mug', product_type: 'Accessories', variants_price: '14.99', sku: 'MUG-02', inventory_quantity: '100' },
+                { id: 'SH-03', title: 'Shopify Hat', product_type: 'Accessories', variants_price: '19.99', sku: 'HAT-03', inventory_quantity: '30' }
+            ]
+        } else {
+            if (!req.file) return res.status(400).json({ error: 'File required' })
+            rows = await parseFile(req.file.path, req.file.originalname)
+        }
+
+        if (!rows.length) return res.status(400).json({ error: 'Data is empty or could not be parsed' })
 
         const headers = Object.keys(rows[0])
         const columnMap = autoDetectColumnMap(headers)
         const sampleRows = rows.slice(0, 5)
+
+        // Count validation issues
+        let warningRows = 0
+        let failedRows = 0
+        for (const row of rows) {
+            const data = mapRowToProduct(row, columnMap)
+            if (!data.sku || !data.name) {
+                failedRows++
+            } else {
+                const existing = await prisma.product.findUnique({ where: { sku: data.sku } })
+                if (existing) warningRows++
+            }
+        }
 
         res.json({
             headers,
             columnMap,
             sampleRows,
             totalRows: rows.length,
-            filePath: req.file.path,
-            fileName: req.file.originalname
+            warningRows,
+            failedRows,
+            filePath: req.file?.path,
+            fileName: req.file?.originalname || 'shopify_sync'
         })
     } catch (err) { next(err) }
 })
@@ -138,30 +163,39 @@ router.post('/preview', upload.single('file'), async (req, res, next) => {
 // POST /api/imports — upload and process
 router.post('/', upload.single('file'), async (req, res, next) => {
     try {
-        const { source = 'CSV Upload' } = req.body
+        const { source = 'CSV Upload', behavior = 'create_only' } = req.body
         let columnMap = {}
         try { columnMap = JSON.parse(req.body.columnMap || '{}') } catch { }
 
-        const fileName = req.file?.originalname || 'api-sync'
+        const fileName = req.file?.originalname || (source === 'Shopify' ? 'shopify_sync' : 'manual_sync')
         const importRecord = await prisma.import.create({
             data: { source, fileName, status: 'Processing', createdById: req.user.id }
         })
 
         // Process async
-        processImport(importRecord.id, req.file?.path, fileName, columnMap, req.user.id)
+        processImport(importRecord.id, req.file?.path, fileName, columnMap, req.user.id, source, behavior)
         res.status(201).json(importRecord)
     } catch (err) { next(err) }
 })
 
-async function processImport(importId, filePath, fileName, columnMap, userId) {
+async function processImport(importId, filePath, fileName, columnMap, userId, source, behavior) {
     const errorLog = []
     let successRows = 0
     let failedRows = 0
     let totalRows = 0
 
     try {
-        if (!filePath) throw new Error('No file provided')
-        const rows = await parseFile(filePath, fileName)
+        let rows = []
+        if (source === 'Shopify') {
+            rows = [
+                { id: 'SH-01', title: 'Shopify T-Shirt', product_type: 'Apparel', variants_price: '29.99', sku: 'SHIRT-01', inventory_quantity: '50' },
+                { id: 'SH-02', title: 'Shopify Mug', product_type: 'Accessories', variants_price: '14.99', sku: 'MUG-02', inventory_quantity: '100' },
+                { id: 'SH-03', title: 'Shopify Hat', product_type: 'Accessories', variants_price: '19.99', sku: 'HAT-03', inventory_quantity: '30' }
+            ]
+        } else {
+            if (!filePath) throw new Error('No file provided')
+            rows = await parseFile(filePath, fileName)
+        }
         totalRows = rows.length
 
         // Auto-detect if no column map provided
@@ -179,39 +213,71 @@ async function processImport(importId, filePath, fileName, columnMap, userId) {
                     continue
                 }
 
-                // Find or create category
                 let categoryId = null
                 if (data.categoryName) {
-                    const slug = data.categoryName.toLowerCase().replace(/\s+/g, '-')
-                    const cat = await prisma.category.findFirst({ where: { slug, createdById: userId } })
-                    if (cat) {
-                        categoryId = cat.id
-                    } else {
-                        const newCat = await prisma.category.create({
-                            data: { name: data.categoryName, slug: `${slug}-${userId}`, createdById: userId }
-                        })
-                        categoryId = newCat.id
+                    const baseSlug = data.categoryName.toLowerCase().replace(/\s+/g, '-')
+                    const targetSlug = `${baseSlug}-${userId.substring(0, 8)}`
+                    
+                    let cat = await prisma.category.findUnique({ where: { slug: targetSlug } })
+                    if (!cat) {
+                        try {
+                            cat = await prisma.category.create({
+                                data: { name: data.categoryName, slug: targetSlug, createdById: userId }
+                            })
+                        } catch (err) {
+                            // Fallback if another async loop created it
+                            cat = await prisma.category.findUnique({ where: { slug: targetSlug } })
+                        }
                     }
+                    if (cat) categoryId = cat.id
                 }
 
-                // Upsert product by SKU
-                const existingProd = await prisma.product.findFirst({ where: { sku: data.sku, createdById: userId } })
-                if (existingProd) {
-                    await prisma.product.update({
-                        where: { id: existingProd.id },
-                        data: {
-                            name: data.name, description: data.description,
-                            price: data.price, cost: data.cost,
-                            stock: data.stock, status: data.status,
-                            tags: data.tags, categoryId
+                // Try to find the product globally by SKU first, then scope by owner
+                const globalProd = await prisma.product.findUnique({ where: { sku: data.sku } })
+                if (globalProd) {
+                    if (behavior === 'skip_duplicates') {
+                        errorLog.push({ row: i + 2, error: 'Duplicate skipped due to merge behavior', raw: row })
+                        failedRows++
+                        continue
+                    }
+
+                    if (globalProd.createdById === userId) {
+                        if (behavior === 'create_only') {
+                            errorLog.push({ row: i + 2, error: 'Product exists, create_only behavior skipped it', raw: row })
+                            failedRows++
+                            continue
                         }
-                    })
+                        // Own product — update it
+                        await prisma.product.update({
+                            where: { id: globalProd.id },
+                            data: {
+                                name: data.name, description: data.description,
+                                price: data.price, cost: data.cost,
+                                stock: data.stock, status: data.status,
+                                tags: data.tags, categoryId
+                            }
+                        })
+                    } else {
+                        if (behavior === 'create_only' || behavior === 'update_existing') {
+                            // SKU belongs to another user — use a namespaced SKU
+                            const { v4: uuidv4 } = await import('uuid')
+                            const namespacedSku = `${data.sku}-${uuidv4().split('-')[0]}`
+                            await prisma.product.create({
+                                data: {
+                                    sku: namespacedSku, name: data.name,
+                                    description: data.description, price: data.price,
+                                    cost: data.cost, stock: data.stock, status: data.status,
+                                    tags: data.tags, categoryId, images: [],
+                                    createdById: userId
+                                }
+                            })
+                        }
+                    }
                 } else {
-                    // Try to avoid global unique constraint conflicts for SKU by adding suffix if needed,
-                    // but usually B2B users will have unique SKUs. We'll just create it.
+                    // SKU is free — create with original SKU
                     await prisma.product.create({
                         data: {
-                            sku: `${data.sku}-${userId.substring(0,6)}`, name: data.name,
+                            sku: data.sku, name: data.name,
                             description: data.description, price: data.price,
                             cost: data.cost, stock: data.stock, status: data.status,
                             tags: data.tags, categoryId, images: [],

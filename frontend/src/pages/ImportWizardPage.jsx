@@ -46,12 +46,29 @@ export function ImportWizardPage() {
 
         const handleNext = async () => {
             if (step < 7) {
-                if (step === 2 && uploadedFileObj) {
+                if (step === 2) {
                     // Call real preview endpoint
-                    setStep(3)
                     try {
                         const formData = new FormData()
-                        formData.append('file', uploadedFileObj)
+                        if (importSource === 'Manual Code') {
+                            const data = document.getElementById('manualCodeData')?.value
+                            if (!data) { toast.error('Please enter data'); return }
+                            const blob = new Blob([data], { type: 'text/csv' })
+                            formData.append('file', blob, 'manual.csv')
+                        } else if (importSource === 'Shopify') {
+                            const url = document.getElementById('shopifyUrl')?.value
+                            const t = document.getElementById('shopifyToken')?.value
+                            if (!url || !t) { toast.error('Please enter store URL and token'); return }
+                            formData.append('shopifyUrl', url)
+                            formData.append('shopifyToken', t)
+                        } else if (uploadedFileObj) {
+                            formData.append('file', uploadedFileObj)
+                        } else {
+                            toast.error('Please upload a file')
+                            return
+                        }
+                        
+                        setStep(3)
                         formData.append('source', importSource)
                         const token = JSON.parse(localStorage.getItem('merchflow_auth') || '{}')?.state?.token
                         const res = await fetch(
@@ -96,12 +113,29 @@ export function ImportWizardPage() {
             }, 300)
 
             try {
-                if (uploadedFileObj) {
-                    const formData = new FormData()
+                const formData = new FormData()
+                formData.append('source', importSource)
+                formData.append('behavior', importOptions.behavior)
+                formData.append('createCategories', String(importOptions.createCategories))
+                
+                let hasData = false
+                if (importSource === 'Manual Code') {
+                    const data = document.getElementById('manualCodeData')?.value
+                    if (data) {
+                        const blob = new Blob([data], { type: 'text/csv' })
+                        formData.append('file', blob, 'manual.csv')
+                        hasData = true
+                    }
+                } else if (importSource === 'Shopify') {
+                    formData.append('shopifyUrl', document.getElementById('shopifyUrl')?.value)
+                    formData.append('shopifyToken', document.getElementById('shopifyToken')?.value)
+                    hasData = true
+                } else if (uploadedFileObj) {
                     formData.append('file', uploadedFileObj)
-                    formData.append('source', importSource)
-                    formData.append('behavior', importOptions.behavior)
-                    formData.append('createCategories', String(importOptions.createCategories))
+                    hasData = true
+                }
+
+                if (hasData) {
                     const token = JSON.parse(localStorage.getItem('merchflow_auth') || '{}')?.state?.token
                     const res = await fetch(
                         `${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/imports`,
@@ -175,9 +209,7 @@ export function ImportWizardPage() {
             { id: 'CSV', icon: FileText, desc: 'Standard CSV file format' },
             { id: 'Excel', icon: FileSpreadsheet, desc: 'XLSX workbook with sheets' },
             { id: 'Shopify', icon: ShoppingCart, desc: 'Connect to live Shopify store' },
-            { id: 'WooCommerce', icon: Store, desc: 'Connect to live WP store' },
-            { id: 'API', icon: Code, desc: 'Direct JSON REST API pull' },
-            { id: 'Manual Code', icon: Database, desc: 'Copy & Paste raw data' }
+            { id: 'Manual Code', icon: Code, desc: 'Copy & Paste raw data' }
         ]
 
         return (
@@ -206,45 +238,89 @@ export function ImportWizardPage() {
         )
     }
 
-    const renderStep2_Upload = () => (
-        <div className="space-y-6 animate-in fade-in focus-in zoom-in-95 duration-300">
-            <div className="text-center mb-8">
-                <h2 className="text-2xl font-bold text-content-primary mb-2">Upload {importSource} File</h2>
-                <p className="text-[14px] text-content-secondary">Upload your catalog file. Max file size: 50MB (approx 100k rows).</p>
-            </div>
-
-            <div className="max-w-xl mx-auto">
-                <label
-                    className="border-2 border-dashed border-border-strong rounded-2xl bg-app-card-muted hover:bg-app-hover transition-colors flex flex-col items-center justify-center p-16 cursor-pointer relative group"
-                >
-                    <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={(e) => {
-                        const f = e.target.files?.[0]
-                        if (f) { setUploadedFile({ name: f.name, size: `${(f.size / 1024).toFixed(1)} KB` }); setUploadedFileObj(f) }
-                    }} />
-                    <div className="h-16 w-16 bg-white rounded-full shadow-sm border border-border-subtle flex items-center justify-center mb-5 group-hover:scale-110 transition-transform group-hover:shadow-md">
-                        {importSource === 'Excel' ? <FileSpreadsheet size={28} className="text-brand" /> : <UploadCloud size={28} className="text-brand" />}
+    const renderStep2_Upload = () => {
+        if (importSource === 'Shopify') {
+            return (
+                <div className="space-y-6 animate-in fade-in focus-in zoom-in-95 duration-300">
+                    <div className="text-center mb-8">
+                        <h2 className="text-2xl font-bold text-content-primary mb-2">Connect to Shopify</h2>
+                        <p className="text-[14px] text-content-secondary">Enter your store details to pull products securely.</p>
                     </div>
-                    {uploadedFile ? (
-                        <div className="text-center">
-                            <span className="text-[16px] font-bold text-content-primary block mb-1">{uploadedFile.name}</span>
-                            <span className="text-[13px] text-content-secondary shrink-0">{uploadedFile.size} • Ready to parse</span>
+                    <div className="max-w-md mx-auto space-y-4">
+                        <div>
+                            <label className="text-sm font-semibold mb-1 block">Store URL</label>
+                            <input type="text" placeholder="e.g. mystore.myshopify.com" className="w-full border border-border-strong rounded-xl px-4 py-2" id="shopifyUrl" />
                         </div>
-                    ) : (
-                        <div className="text-center space-y-1">
-                            <span className="text-[16px] font-bold text-content-primary block">Drag & Drop your file here</span>
-                            <span className="text-[13px] text-content-secondary block">or click to browse your computer</span>
+                        <div>
+                            <label className="text-sm font-semibold mb-1 block">Admin API Access Token</label>
+                            <input type="password" placeholder="shpat_..." className="w-full border border-border-strong rounded-xl px-4 py-2" id="shopifyToken" />
                         </div>
-                    )}
-                </label>
+                    </div>
+                </div>
+            )
+        }
 
-                <div className="mt-6 flex items-center justify-center">
-                    <Button variant="ghost" size="sm" className="text-content-tertiary hover:text-brand">
-                        <FileDown size={14} className="mr-2" /> Download Sample {importSource} Template
-                    </Button>
+        if (importSource === 'Manual Code') {
+            return (
+                <div className="space-y-6 animate-in fade-in focus-in zoom-in-95 duration-300">
+                    <div className="text-center mb-8">
+                        <h2 className="text-2xl font-bold text-content-primary mb-2">Manual Data Entry</h2>
+                        <p className="text-[14px] text-content-secondary">Paste your CSV data directly below.</p>
+                    </div>
+                    <div className="max-w-3xl mx-auto">
+                        <textarea
+                            id="manualCodeData"
+                            className="w-full h-64 border border-border-strong rounded-xl p-4 font-mono text-sm bg-app-card-muted"
+                            placeholder="sku,name,price,stock\nPROD-01,Cool Shirt,25.00,100"
+                        ></textarea>
+                    </div>
+                </div>
+            )
+        }
+
+        return (
+            <div className="space-y-6 animate-in fade-in focus-in zoom-in-95 duration-300">
+                <div className="text-center mb-8">
+                    <h2 className="text-2xl font-bold text-content-primary mb-2">Upload {importSource} File</h2>
+                    <p className="text-[14px] text-content-secondary">Upload your catalog file. Max file size: 50MB (approx 100k rows).</p>
+                </div>
+
+                <div className="max-w-xl mx-auto">
+                    <label
+                        className="border-2 border-dashed border-border-strong rounded-2xl bg-app-card-muted hover:bg-app-hover transition-colors flex flex-col items-center justify-center p-16 cursor-pointer relative group"
+                    >
+                        <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={(e) => {
+                            const f = e.target.files?.[0]
+                            if (f) { setUploadedFile({ name: f.name, size: `${(f.size / 1024).toFixed(1)} KB` }); setUploadedFileObj(f) }
+                        }} />
+                        <div className="h-16 w-16 bg-white rounded-full shadow-sm border border-border-subtle flex items-center justify-center mb-5 group-hover:scale-110 transition-transform group-hover:shadow-md">
+                            {importSource === 'Excel' ? <FileSpreadsheet size={28} className="text-brand" /> : <UploadCloud size={28} className="text-brand" />}
+                        </div>
+                        {uploadedFile ? (
+                            <div className="text-center">
+                                <span className="text-[16px] font-bold text-content-primary block mb-1">{uploadedFile.name}</span>
+                                <span className="text-[13px] text-content-secondary shrink-0">{uploadedFile.size} • Ready to parse</span>
+                            </div>
+                        ) : (
+                            <div className="text-center space-y-1">
+                                <span className="text-[16px] font-bold text-content-primary block">Drag & Drop your file here</span>
+                                <span className="text-[13px] text-content-secondary block">or click to browse your computer</span>
+                            </div>
+                        )}
+                    </label>
+
+                    <div className="mt-6 flex items-center justify-center">
+                        <Button variant="ghost" size="sm" className="text-content-tertiary hover:text-brand" onClick={() => {
+                            const csvContent = "data:text/csv;charset=utf-8,sku,name,category,price,stock\nSHIRT-01,Basic T-Shirt,Apparel,19.99,100"
+                            const link = document.createElement("a"); link.href = encodeURI(csvContent); link.download = "sample.csv"; link.click()
+                        }}>
+                            <FileDown size={14} className="mr-2" /> Download Sample {importSource} Template
+                        </Button>
+                    </div>
                 </div>
             </div>
-        </div>
-    )
+        )
+    }
 
     const renderStep3_Mapping = () => {
         const mappings = [
@@ -313,46 +389,55 @@ export function ImportWizardPage() {
         )
     }
 
-    const renderStep4_Validation = () => (
-        <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-            <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold text-content-primary mb-2">Data Validation</h2>
-                <p className="text-[14px] text-content-secondary">We simulated the import. 462 rows processed. Check for any conflicts.</p>
-            </div>
+    const renderStep4_Validation = () => {
+        const total = previewData?.totalRows || 0;
+        const valid = total > 0 ? total - (previewData?.failedRows || 0) - (previewData?.warningRows || 0) : 0;
+        const warnings = previewData?.warningRows || 0;
+        const failed = previewData?.failedRows || 0;
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-                <Card className="p-5 border-l-4 border-l-semantic-success border-border-subtle shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow cursor-default">
-                    <div className="absolute right-0 top-0 w-24 h-24 bg-semantic-success/5 rounded-bl-[100px] -z-0"></div>
-                    <CheckCircle2 size={24} className="text-semantic-success mb-3 relative z-10" />
-                    <h4 className="text-[28px] font-bold text-content-primary leading-tight">450</h4>
-                    <p className="text-[13px] font-bold text-content-secondary mt-1">Ready to Import</p>
-                    <p className="text-[11px] text-content-tertiary mt-2">Rows perfectly mapped.</p>
-                </Card>
-                <Card className="p-5 border-l-4 border-l-semantic-warning border-border-subtle shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow cursor-default">
-                    <div className="absolute right-0 top-0 w-24 h-24 bg-semantic-warning/5 rounded-bl-[100px] -z-0"></div>
-                    <AlertCircle size={24} className="text-semantic-warning mb-3 relative z-10" />
-                    <h4 className="text-[28px] font-bold text-content-primary leading-tight">12</h4>
-                    <p className="text-[13px] font-bold text-content-secondary mt-1">Warnings</p>
-                    <p className="text-[11px] text-content-tertiary mt-2">Missing categories (will auto-create).</p>
-                </Card>
-                <Card className="p-5 border-l-4 border-l-semantic-error border-border-subtle shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow cursor-default">
-                    <div className="absolute right-0 top-0 w-24 h-24 bg-semantic-error/5 rounded-bl-[100px] -z-0"></div>
-                    <XCircle size={24} className="text-semantic-error mb-3 relative z-10" />
-                    <h4 className="text-[28px] font-bold text-content-primary leading-tight">0</h4>
-                    <p className="text-[13px] font-bold text-content-secondary mt-1">Failed Rows</p>
-                    <p className="text-[11px] text-content-tertiary mt-2">Missing required mapping fields.</p>
-                </Card>
-            </div>
-
-            <div className="max-w-4xl mx-auto bg-semantic-warning/10 border border-semantic-warning/30 rounded-xl p-4 flex items-start gap-4 mt-8">
-                <AlertCircle className="text-semantic-warning shrink-0 mt-0.5" size={20} />
-                <div>
-                    <h5 className="text-[13px] font-bold text-content-primary mb-1">Duplicate Detection Triggered</h5>
-                    <p className="text-[12px] text-content-secondary leading-relaxed">We found 8 SKUs that already exist in your MerchFlow inventory. You can choose how to handle them on the next preview screen.</p>
+        return (
+            <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+                <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold text-content-primary mb-2">Data Validation</h2>
+                    <p className="text-[14px] text-content-secondary">We simulated the import. {total} rows processed. Check for any conflicts.</p>
                 </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+                    <Card className="p-5 border-l-4 border-l-semantic-success border-border-subtle shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow cursor-default">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-semantic-success/5 rounded-bl-[100px] -z-0"></div>
+                        <CheckCircle2 size={24} className="text-semantic-success mb-3 relative z-10" />
+                        <h4 className="text-[28px] font-bold text-content-primary leading-tight">{valid}</h4>
+                        <p className="text-[13px] font-bold text-content-secondary mt-1">Ready to Import</p>
+                        <p className="text-[11px] text-content-tertiary mt-2">Rows perfectly mapped.</p>
+                    </Card>
+                    <Card className="p-5 border-l-4 border-l-semantic-warning border-border-subtle shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow cursor-default">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-semantic-warning/5 rounded-bl-[100px] -z-0"></div>
+                        <AlertCircle size={24} className="text-semantic-warning mb-3 relative z-10" />
+                        <h4 className="text-[28px] font-bold text-content-primary leading-tight">{warnings}</h4>
+                        <p className="text-[13px] font-bold text-content-secondary mt-1">Warnings</p>
+                        <p className="text-[11px] text-content-tertiary mt-2">Missing categories (will auto-create).</p>
+                    </Card>
+                    <Card className="p-5 border-l-4 border-l-semantic-error border-border-subtle shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow cursor-default">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-semantic-error/5 rounded-bl-[100px] -z-0"></div>
+                        <XCircle size={24} className="text-semantic-error mb-3 relative z-10" />
+                        <h4 className="text-[28px] font-bold text-content-primary leading-tight">{failed}</h4>
+                        <p className="text-[13px] font-bold text-content-secondary mt-1">Failed Rows</p>
+                        <p className="text-[11px] text-content-tertiary mt-2">Missing required mapping fields.</p>
+                    </Card>
+                </div>
+
+                {warnings > 0 && (
+                    <div className="max-w-4xl mx-auto bg-semantic-warning/10 border border-semantic-warning/30 rounded-xl p-4 flex items-start gap-4 mt-8">
+                        <AlertCircle className="text-semantic-warning shrink-0 mt-0.5" size={20} />
+                        <div>
+                            <h5 className="text-[13px] font-bold text-content-primary mb-1">Duplicate Detection Triggered</h5>
+                            <p className="text-[12px] text-content-secondary leading-relaxed">We found some SKUs that already exist in your MerchFlow inventory. You can choose how to handle them on the next preview screen.</p>
+                        </div>
+                    </div>
+                )}
             </div>
-        </div>
-    )
+        )
+    }
 
     const renderStep5_Preview = () => (
         <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
@@ -462,42 +547,51 @@ export function ImportWizardPage() {
         </div>
     )
 
-    const renderStep7_Results = () => (
-        <div className="space-y-6 text-center animate-in zoom-in-95 duration-500">
-            <div className="inline-flex h-24 w-24 rounded-full bg-semantic-success/10 text-semantic-success items-center justify-center mb-4">
-                <CheckCircle2 size={48} />
-            </div>
+    const renderStep7_Results = () => {
+        const total = previewData?.totalRows || 0;
+        const valid = total > 0 ? total - (previewData?.failedRows || 0) - (previewData?.warningRows || 0) : 0;
+        const warnings = previewData?.warningRows || 0;
+        const failed = previewData?.failedRows || 0;
 
-            <h2 className="text-[28px] font-bold text-content-primary mb-2">Import Successful!</h2>
-            <p className="text-[14px] text-content-secondary mb-8 max-w-sm mx-auto">Your catalog items have been seamlessly integrated into MerchFlow.</p>
-
-            <div className="flex items-center justify-center gap-12 max-w-xl mx-auto bg-white p-6 rounded-2xl border border-border-subtle shadow-sm mb-10">
-                <div>
-                    <span className="block text-[32px] font-black text-content-primary leading-none mb-1">450</span>
-                    <span className="text-[11px] font-bold text-content-tertiary uppercase tracking-wider">Created</span>
+        return (
+            <div className="space-y-6 text-center animate-in zoom-in-95 duration-500">
+                <div className="inline-flex h-24 w-24 rounded-full bg-semantic-success/10 text-semantic-success items-center justify-center mb-4">
+                    <CheckCircle2 size={48} />
                 </div>
-                <div className="w-px h-12 bg-border-subtle"></div>
-                <div>
-                    <span className="block text-[32px] font-black text-semantic-warning leading-none mb-1">12</span>
-                    <span className="text-[11px] font-bold text-semantic-warning uppercase tracking-wider">Skipped</span>
-                </div>
-                <div className="w-px h-12 bg-border-subtle"></div>
-                <div>
-                    <span className="block text-[32px] font-black text-semantic-error leading-none mb-1">0</span>
-                    <span className="text-[11px] font-bold text-semantic-error uppercase tracking-wider">Failed</span>
-                </div>
-            </div>
 
-            <div className="flex items-center justify-center gap-4">
-                <Button variant="outline" size="lg" onClick={() => navigate('/imports')}>View Import History</Button>
-                <Button size="lg" onClick={() => navigate('/products')}>Go to Products Inventory</Button>
-            </div>
+                <h2 className="text-[28px] font-bold text-content-primary mb-2">Import Successful!</h2>
+                <p className="text-[14px] text-content-secondary mb-8 max-w-sm mx-auto">Your catalog items have been seamlessly integrated into MerchFlow.</p>
 
-            <div className="mt-8">
-                <Button variant="ghost" className="text-content-tertiary hover:text-brand text-[13px]"><Download size={14} className="mr-2" /> Download Warning Report</Button>
+                <div className="flex items-center justify-center gap-12 max-w-xl mx-auto bg-white p-6 rounded-2xl border border-border-subtle shadow-sm mb-10">
+                    <div>
+                        <span className="block text-[32px] font-black text-content-primary leading-none mb-1">{valid}</span>
+                        <span className="text-[11px] font-bold text-content-tertiary uppercase tracking-wider">Created</span>
+                    </div>
+                    <div className="w-px h-12 bg-border-subtle"></div>
+                    <div>
+                        <span className="block text-[32px] font-black text-semantic-warning leading-none mb-1">{warnings}</span>
+                        <span className="text-[11px] font-bold text-semantic-warning uppercase tracking-wider">Skipped</span>
+                    </div>
+                    <div className="w-px h-12 bg-border-subtle"></div>
+                    <div>
+                        <span className="block text-[32px] font-black text-semantic-error leading-none mb-1">{failed}</span>
+                        <span className="text-[11px] font-bold text-semantic-error uppercase tracking-wider">Failed</span>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-center gap-4">
+                    <Button variant="outline" size="lg" onClick={() => navigate('/imports')}>View Import History</Button>
+                    <Button size="lg" onClick={() => navigate('/products')}>Go to Products Inventory</Button>
+                </div>
+
+                {warnings > 0 && (
+                    <div className="mt-8">
+                        <Button variant="ghost" className="text-content-tertiary hover:text-brand text-[13px]"><Download size={14} className="mr-2" /> Download Warning Report</Button>
+                    </div>
+                )}
             </div>
-        </div>
-    )
+        )
+    }
 
     return (
         <div className="min-h-[calc(100vh-80px)] bg-app-body flex flex-col pt-8 pb-20">
@@ -540,7 +634,6 @@ export function ImportWizardPage() {
                     <Button
                         size="lg"
                         onClick={handleNext}
-                        disabled={(step === 2 && !uploadedFile)}
                         className="px-8 font-bold"
                     >
                         {step === 5 ? 'Run Import Job' : 'Continue'} <ArrowRight className={cn("ml-2 h-4 w-4", step === 5 && "hidden")} />

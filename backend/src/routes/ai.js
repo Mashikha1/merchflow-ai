@@ -6,7 +6,7 @@ import { createNotification } from './notifications.js'
 const router = Router()
 router.use(requireAuth)
 
-const requireMerchandiser = requireRole('ADMIN', 'MERCHANDISER')
+const requireMerchandiser = requireRole('ADMIN', 'MERCHANDISER', 'SALES', 'DESIGNER')
 
 // ─── AILabTools API constants ─────────────────────────────────────────────────
 const AILAB_SUBMIT_URL = 'https://www.ailabapi.com/api/portrait/editing/try-on-clothes'
@@ -262,7 +262,7 @@ router.get('/jobs/:id', async (req, res, next) => {
 })
 
 // ─── POST /api/ai/try-on ──────────────────────────────────────────────────────
-router.post('/try-on', requireMerchandiser, async (req, res, next) => {
+router.post('/try-on', async (req, res, next) => {
     try {
         const { productId, garmentUrl, personUrl, clothesType = 'upper_body', meta = {} } = req.body
         if (!garmentUrl || !personUrl) return res.status(400).json({ error: 'garmentUrl and personUrl required' })
@@ -287,7 +287,7 @@ router.post('/try-on', requireMerchandiser, async (req, res, next) => {
 })
 
 // ─── POST /api/ai/jobs/:id/retry ──────────────────────────────────────────────
-router.post('/jobs/:id/retry', requireMerchandiser, async (req, res, next) => {
+router.post('/jobs/:id/retry', async (req, res, next) => {
     try {
         const orig = await prisma.aIJob.findUnique({ where: { id: req.params.id } })
         if (!orig) return res.status(404).json({ error: 'Job not found' })
@@ -318,7 +318,7 @@ router.patch('/jobs/:id/output/:outputId', async (req, res, next) => {
 })
 
 // ─── POST /api/ai/descriptions ────────────────────────────────────────────────
-router.post('/descriptions', requireMerchandiser, async (req, res, next) => {
+router.post('/descriptions', async (req, res, next) => {
     try {
         const { productId, tone = 'professional', customContext = '' } = req.body
         if (!productId) return res.status(400).json({ error: 'productId required' })
@@ -381,7 +381,7 @@ router.patch('/descriptions/apply', async (req, res, next) => {
 })
 
 // ─── POST /api/ai/attributes ──────────────────────────────────────────────────
-router.post('/attributes', requireMerchandiser, async (req, res, next) => {
+router.post('/attributes', async (req, res, next) => {
     try {
         const { imageUrl, productId } = req.body
         if (!imageUrl) return res.status(400).json({ error: 'imageUrl required' })
@@ -430,7 +430,7 @@ Return ONLY valid JSON (no markdown, no explanation) with these exact keys:
 })
 
 // ─── POST /api/ai/backgrounds ─────────────────────────────────────────────────
-router.post('/backgrounds', requireMerchandiser, async (req, res, next) => {
+router.post('/backgrounds', async (req, res, next) => {
     try {
         const { garmentUrl, background = 'white', productId } = req.body
         if (!garmentUrl) return res.status(400).json({ error: 'garmentUrl required' })
@@ -488,7 +488,7 @@ async function processBackgroundJob(jobId, garmentUrl, background, createdById) 
 }
 
 // ─── POST /api/ai/lookbook-assist ─────────────────────────────────────────────
-router.post('/lookbook-assist', requireMerchandiser, async (req, res, next) => {
+router.post('/lookbook-assist', async (req, res, next) => {
     try {
         const { catalogId } = req.body
         if (!catalogId) return res.status(400).json({ error: 'catalogId required' })

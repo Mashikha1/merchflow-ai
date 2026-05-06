@@ -8,13 +8,13 @@ router.use(requireAuth)
 router.get('/', async (req, res, next) => {
     try {
         const isBuyer = req.user.role === 'VIEWER'
-        const baseWhere = isBuyer 
-            ? { status: { in: ['Published', 'Approved'] } } 
-            : {}
-            
-        const catalogs = await prisma.catalog.findMany({ 
+        const baseWhere = isBuyer
+            ? { status: { in: ['Published', 'Approved'] } }
+            : { createdById: req.user.id }
+
+        const catalogs = await prisma.catalog.findMany({
             where: baseWhere,
-            orderBy: { updatedAt: 'desc' } 
+            orderBy: { updatedAt: 'desc' }
         })
         res.json(catalogs)
     } catch (err) { next(err) }
@@ -26,6 +26,7 @@ router.get('/:id', async (req, res, next) => {
         const isBuyer = req.user.role === 'VIEWER'
         if (!catalog) return res.status(404).json({ error: 'Catalog not found' })
         if (isBuyer && !['Published', 'Approved'].includes(catalog.status)) return res.status(404).json({ error: 'Catalog not available' })
+        if (!isBuyer && catalog.createdById && catalog.createdById !== req.user.id) return res.status(404).json({ error: 'Catalog not found' })
         res.json(catalog)
     } catch (err) { next(err) }
 })
