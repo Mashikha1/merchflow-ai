@@ -13,7 +13,8 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
-  Book
+  Book,
+  FileDown
 } from 'lucide-react'
 import { productService } from '../services/productService'
 import { catalogService } from '../services/catalogService'
@@ -49,6 +50,8 @@ export function ProductsPage() {
     newSection: false,
   })
 
+  const [statusFilter, setStatusFilter] = useState('All')
+
   const { data: products, isLoading } = useQuery({
     queryKey: ['products'],
     queryFn: productService.getProducts,
@@ -74,6 +77,45 @@ export function ProductsPage() {
       toast.error('Failed to update wishlist')
     }
   }
+
+  const handleExport = () => {
+    if (!products || products.length === 0) {
+      toast.error('No products to export')
+      return
+    }
+
+    const headers = ['Name', 'SKU', 'Category', 'Price', 'Stock', 'Status']
+    const csvContent = [
+      headers.join(','),
+      ...products.map(p => [
+        `"${p.name || ''}"`,
+        `"${p.sku || ''}"`,
+        `"${p.category || ''}"`,
+        p.price || 0,
+        p.stock || 0,
+        `"${p.status || ''}"`
+      ].join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `products_export_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    toast.success('Products exported successfully')
+  }
+
+  const filteredProducts = (products || []).filter(p => {
+    const matchesGlobal = !globalFilter ||
+      p.name.toLowerCase().includes(globalFilter.toLowerCase()) ||
+      p.sku.toLowerCase().includes(globalFilter.toLowerCase())
+    const matchesStatus = statusFilter === 'All' || p.status === statusFilter
+    return matchesGlobal && matchesStatus
+  })
 
   const columns = [
     {
@@ -215,7 +257,7 @@ export function ProductsPage() {
         <div className="flex items-center gap-3">
           {!isBuyer && (
             <>
-              <Button variant="secondary" className="hidden sm:flex"><Download className="mr-2 h-4 w-4" /> Export</Button>
+              <Button variant="secondary" className="hidden sm:flex" onClick={handleExport}><FileDown className="mr-2 h-4 w-4" /> Export</Button>
               <Button
                 variant="secondary"
                 className="hidden md:flex"
@@ -264,9 +306,16 @@ export function ProductsPage() {
                 className="pl-9 bg-white"
               />
             </div>
-            <Button variant="secondary">
-              <Filter className="mr-2 h-4 w-4" /> Filters
-            </Button>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="h-10 rounded-xl border border-border-subtle bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            >
+              <option value="All">All Status</option>
+              <option value="Active">Active</option>
+              <option value="Draft">Draft</option>
+              <option value="Low Stock">Low Stock</option>
+            </select>
           </div>
         </div>
 
@@ -278,7 +327,7 @@ export function ProductsPage() {
               </div>
             ) : (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                {(products || []).filter(p => !globalFilter || p.name.toLowerCase().includes(globalFilter.toLowerCase()) || p.sku.toLowerCase().includes(globalFilter.toLowerCase())).map(p => (
+                {filteredProducts.map(p => (
                   <Link key={p.id} to={`/products/${p.id}`} className="group rounded-2xl border border-border-subtle overflow-hidden bg-white hover:shadow-lg transition-shadow flex flex-col">
                     <div className="aspect-square bg-gray-100 overflow-hidden relative">
                       {p.images && p.images[0]
@@ -320,7 +369,7 @@ export function ProductsPage() {
         ) : (
           <DataTable
             columns={columns}
-            data={products || []}
+            data={filteredProducts}
             loading={isLoading}
             onRowSelectionChange={(rows) => setSelected(rows)}
           />
@@ -451,7 +500,13 @@ export function ProductsPage() {
                   const existingIds = new Set(existingItems.map(item => item.id))
                   const newItems = selected
                     .filter(p => !existingIds.has(p.id))
-                    .map((p) => ({ id: p.id, sku: p.sku, name: p.name }))
+                    .map((p) => {
+                      const item = { id: p.id, sku: p.sku, name: p.name }
+                      if (p.images && p.images[0] && !String(p.images[0]).startsWith('blob:')) {
+                        item.image = p.images[0]
+                      }
+                      return item
+                    })
 
                   if (newItems.length === 0 && mode === 'existing') {
                     toast.message('Products are already in this catalog')

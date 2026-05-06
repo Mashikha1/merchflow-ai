@@ -1,19 +1,55 @@
-import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
-import { Plus, Search, Filter, MoreHorizontal, Book } from 'lucide-react'
+import { Plus, Search, Filter, MoreHorizontal, Book, Edit2, Trash2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { toast } from 'sonner'
+import { cn } from '../lib/cn'
 
 export function CollectionsPage() {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const [menuOpenId, setMenuOpenId] = useState(null)
+  const menuRef = useRef(null)
+
+  // Close menu on click outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpenId(null)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
   const { data: collections = [], isLoading } = useQuery({
     queryKey: ['collections'],
     queryFn: () => api.get('/collections'),
   })
 
+  const deleteM = useMutation({
+    mutationFn: (id) => api.delete(`/collections/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['collections'] })
+      toast.success('Collection deleted successfully')
+      setMenuOpenId(null)
+    },
+    onError: (err) => {
+      toast.error('Failed to delete collection: ' + (err.message || 'Unknown error'))
+    }
+  })
+
+  const handleDelete = (id) => {
+    if (window.confirm('Are you sure you want to delete this collection?')) {
+      deleteM.mutate(id)
+    }
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -36,7 +72,7 @@ export function CollectionsPage() {
           <Button variant="secondary"><Filter className="mr-2 h-4 w-4" /> Filters</Button>
         </div>
 
-        <div className="bg-white border text-sm border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="bg-white border text-sm border-gray-200 rounded-xl shadow-sm">
           <table className="w-full text-left">
             <thead className="bg-gray-50 border-b border-gray-200 text-gray-500 font-medium">
               <tr>
@@ -57,8 +93,12 @@ export function CollectionsPage() {
                 <tr key={collection.id} className="hover:bg-gray-50 group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-md bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm border border-indigo-200">
-                        {collection.name?.charAt(0) || 'C'}
+                      <div className="h-10 w-10 rounded-md bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm border border-indigo-200 overflow-hidden">
+                        {collection.coverImage ? (
+                          <img src={collection.coverImage} className="w-full h-full object-cover" alt="" />
+                        ) : (
+                          collection.name?.charAt(0) || 'C'
+                        )}
                       </div>
                       <span className="font-medium text-gray-900">{collection.name}</span>
                     </div>
@@ -72,11 +112,43 @@ export function CollectionsPage() {
                   </td>
                   <td className="px-6 py-4 text-gray-500">{collection._count?.products ?? 0} items</td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Link to={`/catalogs/new`}>
+                    <div className={cn(
+                      "flex items-center justify-end gap-2 transition-opacity relative",
+                      menuOpenId === collection.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    )}>
+                      <Link to={`/catalogs/new?collectionId=${collection.id}`}>
                         <Button variant="secondary" size="sm"><Book className="mr-1.5 h-3.5 w-3.5" /> Send to Catalog</Button>
                       </Link>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
+                      <div className="relative" ref={menuOpenId === collection.id ? menuRef : null}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-8 w-8 p-0"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setMenuOpenId(menuOpenId === collection.id ? null : collection.id)
+                          }}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                        
+                        {menuOpenId === collection.id && (
+                          <div className="absolute right-0 mt-2 w-32 bg-white border border-border-subtle rounded-lg shadow-xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-200">
+                            <button 
+                              className="w-full px-4 py-2 text-left text-xs font-medium text-content-primary hover:bg-app-hover flex items-center gap-2"
+                              onClick={() => navigate(`/collections/edit/${collection.id}`)}
+                            >
+                              <Edit2 size={14} /> Edit
+                            </button>
+                            <button 
+                              className="w-full px-4 py-2 text-left text-xs font-medium text-semantic-error hover:bg-red-50 flex items-center gap-2"
+                              onClick={() => handleDelete(collection.id)}
+                            >
+                              <Trash2 size={14} /> Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>

@@ -6,6 +6,7 @@ import { DataTable } from '../components/DataTable'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Search, Filter, AlertCircle, ArrowDownToLine, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
 
 // Transform backend inventory item → flat table row shape
 function transformItem(i) {
@@ -31,6 +32,24 @@ export function InventoryPage() {
     queryKey: ['inventory'],
     queryFn: () => api.get('/inventory'),
   })
+
+  const handleExportCSV = async () => {
+    try {
+      const blob = await api.get('/inventory/export', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `inventory_export_${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      toast.success('Inventory exported successfully')
+    } catch (err) {
+      console.error('Export error:', err)
+      toast.error('Failed to export inventory CSV')
+    }
+  }
 
   const summary = raw?.summary || {}
   const inventory = (raw?.items || []).map(transformItem)
@@ -63,7 +82,9 @@ export function InventoryPage() {
           description="Track stock levels, incoming shipments, and location availability."
         />
         <div className="flex items-center gap-3">
-          <Button variant="secondary"><ArrowDownToLine className="mr-2 h-4 w-4" /> Export CSV</Button>
+          <Button variant="secondary" onClick={handleExportCSV}>
+            <ArrowDownToLine className="mr-2 h-4 w-4" /> Export CSV
+          </Button>
           <Button><RefreshCw className="mr-2 h-4 w-4" /> Bulk Adjust</Button>
         </div>
       </div>

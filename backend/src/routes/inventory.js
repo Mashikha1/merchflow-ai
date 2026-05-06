@@ -8,6 +8,28 @@ router.use(requireAuth)
 // GET /api/inventory  – summary + all items
 router.get('/', async (req, res, next) => {
     try {
+        // Safety: Ensure all user products have at least one inventory item
+        const productsWithoutInventory = await prisma.product.findMany({
+            where: {
+                createdById: req.user.id,
+                inventoryItems: { none: {} }
+            }
+        })
+
+        if (productsWithoutInventory.length > 0) {
+            await Promise.all(
+                productsWithoutInventory.map(p =>
+                    prisma.inventoryItem.create({
+                        data: {
+                            productId: p.id,
+                            location: 'Main Hub',
+                            onHand: p.stock || 0
+                        }
+                    })
+                )
+            )
+        }
+
         const items = await prisma.inventoryItem.findMany({
             where: {
                 product: { createdById: req.user.id }
@@ -22,6 +44,44 @@ router.get('/', async (req, res, next) => {
         const incoming = items.reduce((a, i) => a + i.incoming, 0)
 
         res.json({ summary: { totalAvailable, lowStock, outOfStock, incoming }, items })
+    } catch (err) { next(err) }
+})
+
+// GET /api/inventory/export
+router.get('/export', async (req, res, next) => {
+    try {
+        const items = await prisma.inventoryItem.findMany({
+            where: {
+                product: { createdById: req.user.id }
+            },
+            include: { product: { select: { sku: true, name: true } } }
+        })
+
+        const csvRows = [
+            ['SKU', 'Product', 'Location', 'On Hand', 'Reserved', 'Available', 'Incoming', 'Status'].join(',')
+        ]
+
+        items.forEach(i => {
+            const available = Math.max(0, i.onHand - i.reserved)
+            let status = 'In Stock'
+            if (i.onHand === 0) status = 'Out of Stock'
+            else if (i.onHand <= 20) status = 'Low Stock'
+
+            csvRows.push([
+                `"${i.product?.sku || ''}"`,
+                `"${i.product?.name || ''}"`,
+                `"${i.location}"`,
+                i.onHand,
+                i.reserved,
+                available,
+                i.incoming,
+                status
+            ].join(','))
+        })
+
+        res.setHeader('Content-Type', 'text/csv')
+        res.setHeader('Content-Disposition', 'attachment; filename=inventory_export.csv')
+        res.send(csvRows.join('\n'))
     } catch (err) { next(err) }
 })
 

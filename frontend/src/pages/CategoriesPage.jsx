@@ -356,8 +356,7 @@ export function CategoriesPage() {
           description="Organize your product taxonomy, configure AI extraction rules, and manage assignments."
         />
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="text-brand border-brand-soft hover:bg-brand-soft"><Wand2 className="mr-2 h-4 w-4" /> AI Auto-Generate</Button>
-          <Button variant="outline" className="hidden sm:flex"><Upload className="mr-2 h-4 w-4" /> Import</Button>
+          <Button variant="outline" className="hidden sm:flex" onClick={() => navigate('/imports/new')}><Upload className="mr-2 h-4 w-4" /> Import</Button>
           <Button onClick={handleNewRootCategory} disabled={isCreateMode}><Plus className="mr-2 h-4 w-4" /> New Category</Button>
         </div>
       </div>
@@ -427,8 +426,7 @@ export function CategoriesPage() {
                     { id: 'overview', label: 'Overview', icon: FolderOpen },
                     { id: 'products', label: `Products (${selectedCategory.productCount || 0})`, icon: Package },
                     { id: 'attributes', label: 'Attributes', icon: Tags },
-                    { id: 'rules', label: 'Smart Rules', icon: Settings2 },
-                    { id: 'ai', label: 'AI Settings', icon: Sparkles }
+                    { id: 'rules', label: 'Smart Rules', icon: Settings2 }
                   ].map(tab => (
                     <button
                       key={tab.id}

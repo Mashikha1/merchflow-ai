@@ -20,9 +20,7 @@ const delay = (ms) => new Promise(r => setTimeout(r, ms))
 
 const DEFAULT_FOLDERS = [
   { id: 'f0', name: 'Product Original' },
-  { id: 'f1', name: 'AI Virtual Try-On' },
-  { id: 'f2', name: 'Lifestyle/Campaigns' },
-  { id: 'f3', name: 'Documents & Specs' }
+  { id: 'f1', name: 'AI Virtual Try-On' }
 ]
 
 export function MediaLibraryPage() {
@@ -69,6 +67,10 @@ export function MediaLibraryPage() {
   const [openMenuId, setOpenMenuId] = useState(null)
   const [previewMedia, setPreviewMedia] = useState(null)
 
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showAiOnly, setShowAiOnly] = useState(false)
+
   const queryClient = useQueryClient()
 
   const handleDeleteMedia = async (id) => {
@@ -88,9 +90,13 @@ export function MediaLibraryPage() {
     queryFn: async () => {
       const dbMedia = await api.get('/media')
       return dbMedia.map(m => ({
-        id: m.id, url: m.url, name: m.filename,
+        id: m.id, 
+        url: m.url, 
+        name: m.filename,
         size: `${(m.size / 1024 / 1024).toFixed(1)} MB`,
-        isAi: (m.tags || []).includes('ai'), folder: m.folder || 'Product Original'
+        isAi: (m.tags || []).includes('ai'), 
+        folder: m.folder || 'All Media',
+        tags: m.tags || []
       }))
     }
   })
@@ -157,6 +163,12 @@ export function MediaLibraryPage() {
 
       const formData = new FormData()
       selectedFiles.forEach(f => f.rawFile && formData.append('files', f.rawFile))
+      
+      // Add metadata
+      formData.append('folder', metaFolder)
+      formData.append('tags', metaTags)
+      formData.append('isAi', String(metaIsAi))
+      formData.append('productId', metaProduct) // Assuming metaProduct is SKU/ID for now
 
       const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 
@@ -243,7 +255,20 @@ export function MediaLibraryPage() {
     }), 300)
   }
 
-  const displayMedia = media?.filter(m => activeFolder === 'All Media' || m.folder === activeFolder) || []
+  const displayMedia = media?.filter(m => {
+    // Folder filter
+    const matchesFolder = activeFolder === 'All Media' || m.folder === activeFolder
+    
+    // AI filter
+    const matchesAi = !showAiOnly || m.isAi
+    
+    // Search filter
+    const matchesSearch = !searchQuery || 
+      m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (m.tags && m.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())))
+
+    return matchesFolder && matchesAi && matchesSearch
+  }) || []
 
   return (
     <div className="space-y-6 pb-12 relative w-full h-full">
@@ -271,11 +296,21 @@ export function MediaLibraryPage() {
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input placeholder="Search files by name, tags, or product..." className="pl-9 bg-white w-full" />
+          <Input 
+            placeholder="Search files by name, tags, or product..." 
+            className="pl-9 bg-white w-full" 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
         <div className="flex gap-2">
           <Button variant="secondary"><Filter className="mr-2 h-4 w-4" /> All File Types</Button>
-          <Button variant="secondary"><Sparkles className="mr-2 h-4 w-4 text-brand" /> AI Assets Only</Button>
+          <Button 
+            variant={showAiOnly ? "brand" : "secondary"}
+            onClick={() => setShowAiOnly(!showAiOnly)}
+          >
+            <Sparkles className={cn("mr-2 h-4 w-4", !showAiOnly && "text-brand")} /> AI Assets Only
+          </Button>
         </div>
       </div>
 
@@ -570,8 +605,6 @@ export function MediaLibraryPage() {
               >
                 <option value="Product Original">Product Original</option>
                 <option value="AI Try-On">AI Try-On Generated</option>
-                <option value="Lifestyle/Campaign">Lifestyle/Campaign</option>
-                <option value="Document/Spec">Document/Specs</option>
               </select>
             </div>
 

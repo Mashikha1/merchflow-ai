@@ -1,0 +1,433 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String         @id @default(uuid())
+  email          String         @unique
+  password       String
+  name           String
+  role           Role           @default(VIEWER)
+  title          String?
+  phone          String?
+  avatarUrl      String?
+  brandName      String?
+  brandLogo      String?
+  brandColor     String?
+  brandEmail     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  aiJobs         AIJob[]
+  notes          CustomerNote[] @relation("CustomerNoteCreator")
+  imports        Import[]
+  quotesAssigned Quote[]        @relation("QuoteAssignee")
+  quotesCreated  Quote[]        @relation("QuoteCreator")
+  notifications  Notification[]
+  wishlistItems  WishlistItem[]
+  media          Media[]
+
+  productsCreated    Product[]    @relation("ProductCreator")
+  categoriesCreated  Category[]   @relation("CategoryCreator")
+  collectionsCreated Collection[] @relation("CollectionCreator")
+  customersCreated   Customer[]   @relation("CustomerCreator")
+  catalogsCreated    Catalog[]    @relation("CatalogCreator")
+  showroomsCreated   Showroom[]   @relation("ShowroomCreator")
+
+  @@map("users")
+}
+
+model Product {
+  id             String          @id @default(uuid())
+  sku            String          @unique
+  name           String
+  description    String?
+  categoryId     String?
+  collectionId   String?
+  price          Decimal         @default(0) @db.Decimal(10, 2)
+  cost           Decimal?        @db.Decimal(10, 2)
+  stock          Int             @default(0)
+  status         ProductStatus   @default(DRAFT)
+  images         String[]
+  tags           String[]
+  aiAssets       Int             @default(0)
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  aiJobs         AIJob[]
+  inventoryItems InventoryItem[]
+  variants       Variant[]
+  category       Category?       @relation(fields: [categoryId], references: [id])
+  collection     Collection?     @relation(fields: [collectionId], references: [id])
+  createdBy      User?           @relation("ProductCreator", fields: [createdById], references: [id])
+  quoteItems     QuoteItem[]
+  wishlistItems  WishlistItem[]
+
+  @@map("products")
+}
+
+model Variant {
+  id        String   @id @default(uuid())
+  productId String
+  sku       String   @unique
+  color     String?
+  size      String?
+  material  String?
+  stock     Int      @default(0)
+  price     Decimal? @db.Decimal(10, 2)
+  images    String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("variants")
+}
+
+model Category {
+  id          String     @id @default(uuid())
+  name        String
+  slug        String     @unique
+  description String?
+  status      String     @default("Active")
+  aiEnabled   Boolean    @default(false)
+  parentId    String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  products    Product[]
+  parent      Category?  @relation("SubCategories", fields: [parentId], references: [id])
+  children    Category[] @relation("SubCategories")
+  createdBy   User?      @relation("CategoryCreator", fields: [createdById], references: [id])
+
+  @@map("categories")
+}
+
+model Collection {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  type        String    @default("manual")
+  layout      String    @default("grid")
+  status      String    @default("Draft")
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+  createdBy   User?     @relation("CollectionCreator", fields: [createdById], references: [id])
+
+  @@map("collections")
+}
+
+model InventoryItem {
+  id        String   @id @default(uuid())
+  productId String
+  location  String   @default("Main Hub")
+  onHand    Int      @default(0)
+  reserved  Int      @default(0)
+  incoming  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_items")
+}
+
+model Customer {
+  id                   String             @id @default(uuid())
+  name                 String
+  company              String
+  email                String             @unique
+  phone                String?
+  segment              String             @default("Wholesale Buyer")
+  country              String             @default("US")
+  region               String?
+  source               String             @default("Import")
+  status               CustomerStatus     @default(PROSPECT)
+  assignedOwner        String?
+  preferredOrderType   String?
+  moqExpectations      String?
+  preferredCategories  String[]
+  preferredCollections String[]
+  tags                 String[]
+  archived             Boolean            @default(false)
+  lifetimeValue        Decimal            @default(0) @db.Decimal(12, 2)
+  ordersPlaced         Int                @default(0)
+  lastActivityAt       DateTime           @default(now())
+  createdById          String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  notes                CustomerNote[]
+  reminders            CustomerReminder[]
+  quotes               Quote[]
+  createdBy            User?              @relation("CustomerCreator", fields: [createdById], references: [id])
+
+  @@map("customers")
+}
+
+model CustomerNote {
+  id         String   @id @default(uuid())
+  customerId String
+  userId     String?
+  body       String
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user       User?    @relation("CustomerNoteCreator", fields: [userId], references: [id])
+
+  @@map("customer_notes")
+}
+
+model CustomerReminder {
+  id         String   @id @default(uuid())
+  customerId String
+  body       String
+  dueAt      DateTime
+  done       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_reminders")
+}
+
+model Quote {
+  id            String         @id @default(cuid())
+  number        Int            @default(autoincrement())
+  customerId    String?
+  buyerName     String
+  buyerCompany  String
+  buyerEmail    String
+  buyerPhone    String?
+  buyerCountry  String?
+  source        String         @default("Sales")
+  showroomId    String?
+  currency      String         @default("USD")
+  status        QuoteStatus    @default(DRAFT)
+  expiryDate    DateTime?
+  assignedToId  String?
+  createdById   String?
+  internalNotes String?
+  archived      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  history       QuoteHistory[]
+  items         QuoteItem[]
+  assignedTo    User?          @relation("QuoteAssignee", fields: [assignedToId], references: [id])
+  createdBy     User?          @relation("QuoteCreator", fields: [createdById], references: [id])
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id          String   @id @default(uuid())
+  quoteId     String
+  productId   String?
+  sku         String
+  name        String
+  qty         Int      @default(1)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  discountPct Decimal  @default(0) @db.Decimal(5, 2)
+  product     Product? @relation(fields: [productId], references: [id])
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@map("quote_items")
+}
+
+model QuoteHistory {
+  id      String   @id @default(uuid())
+  quoteId String
+  by      String
+  action  String
+  at      DateTime @default(now())
+  quote   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@map("quote_history")
+}
+
+model Catalog {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  type        String   @default("lookbook")
+  template    String   @default("modern")
+  source      String   @default("collection")
+  audience    String   @default("b2b")
+  status      String   @default("Draft")
+  items       Json     @default("[]")
+  sections    Json     @default("[]")
+  toggles     Json     @default("{}")
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User?    @relation("CatalogCreator", fields: [createdById], references: [id])
+
+  @@map("catalogs")
+}
+
+model Showroom {
+  id          String     @id @default(uuid())
+  name        String
+  slug        String     @unique
+  description String?
+  status      String     @default("Draft")
+  coverImage  String?
+  settings    Json       @default("{}")
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  pageViews   PageView[]
+  createdBy   User?      @relation("ShowroomCreator", fields: [createdById], references: [id])
+
+  @@map("showrooms")
+}
+
+model AIJob {
+  id          String      @id @default(uuid())
+  type        String      @default("try-on")
+  status      AIJobStatus @default(QUEUED)
+  progress    Int         @default(0)
+  productId   String?
+  garmentUrl  String?
+  personUrl   String?
+  outputs     Json        @default("[]")
+  errorMsg    String?
+  seed        Int?
+  quality     String      @default("hd")
+  variations  Int         @default(2)
+  createdById String?
+  createdAt   DateTime    @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  createdBy   User?       @relation(fields: [createdById], references: [id])
+  product     Product?    @relation(fields: [productId], references: [id])
+
+  @@map("ai_jobs")
+}
+
+model Media {
+  id          String   @id @default(uuid())
+  filename    String
+  url         String
+  mimeType    String
+  size        Int
+  alt         String?
+  tags        String[]
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  createdBy User? @relation(fields: [createdById], references: [id])
+
+  @@map("media")
+}
+
+model Import {
+  id          String   @id @default(uuid())
+  source      String
+  fileName    String
+  status      String   @default("Processing")
+  totalRows   Int?
+  successRows Int      @default(0)
+  failedRows  Int      @default(0)
+  errorLog    Json?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+
+  @@map("imports")
+}
+
+model PageView {
+  id         String    @id @default(uuid())
+  entity     String // "showroom" | "catalog" | "product"
+  entityId   String
+  showroomId String?
+  visitorId  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  showroom   Showroom? @relation(fields: [showroomId], references: [id], onDelete: SetNull)
+
+  @@map("page_views")
+}
+
+model Invitation {
+  id        String    @id @default(uuid())
+  email     String
+  role      Role      @default(VIEWER)
+  token     String    @unique @default(uuid())
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("invitations")
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String?
+  readAt    DateTime?
+  link      String?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String?
+  productId String
+  sessionId String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("wishlist_items")
+}
+
+enum Role {
+  ADMIN
+  MERCHANDISER
+  SALES
+  DESIGNER
+  VIEWER
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+  LOW_STOCK
+}
+
+enum CustomerStatus {
+  ACTIVE
+  PROSPECT
+  INACTIVE
+  ARCHIVED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  VIEWED
+  NEGOTIATING
+  APPROVED
+  REJECTED
+  EXPIRED
+  CONVERTED_TO_ORDER
+}
+
+enum AIJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
