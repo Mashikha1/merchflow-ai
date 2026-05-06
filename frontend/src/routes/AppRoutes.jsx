@@ -15,9 +15,7 @@ import { ProductsPage } from '../pages/ProductsPage'
 import { ProductNewPage } from '../pages/ProductNewPage'
 import { ProductDetailPage } from '../pages/ProductDetailPage'
 
-import { CategoriesPage } from '../pages/CategoriesPage'
-import { CollectionsPage } from '../pages/CollectionsPage'
-import { CollectionNewPage } from '../pages/CollectionNewPage'
+
 import { InventoryPage } from '../pages/InventoryPage'
 import { ImportsPage } from '../pages/ImportsPage'
 import { ImportWizardPage } from '../pages/ImportWizardPage'
@@ -47,9 +45,8 @@ import { ShowroomNewPage } from '../pages/showrooms/ShowroomNewPage'
 import { ShowroomDetailPage } from '../pages/showrooms/ShowroomDetailPage'
 
 import { OrdersPage } from '../pages/OrdersPage'
-import { QuotesPage } from '../pages/QuotesPage'
-import { QuoteCreatePage } from '../pages/quotes/QuoteCreatePage'
-import { CustomersPage } from '../pages/CustomersPage'
+
+
 
 import { SettingsProfilePage } from '../pages/settings/SettingsProfilePage'
 import { SettingsTeamPage } from '../pages/settings/SettingsTeamPage'
@@ -131,9 +128,7 @@ export function AppRoutes() {
         <Route path="/products/new" element={<ProductNewPage />} />
         <Route path="/products/:id" element={<ProductDetailPage />} />
 
-        <Route path="/categories" element={<CategoriesPage />} />
-        <Route path="/collections" element={<CollectionsPage />} />
-        <Route path="/collections/new" element={<CollectionNewPage />} />
+
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/imports" element={<ImportsPage />} />
         <Route path="/imports/new" element={<ImportWizardPage />} />
@@ -163,10 +158,8 @@ export function AppRoutes() {
         <Route path="/showrooms/:id" element={<ShowroomDetailPage />} />
 
         <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/quotes" element={<QuotesPage />} />
-        <Route path="/quotes/new" element={<QuoteCreatePage />} />
-        <Route path="/quotes/:id/edit" element={<QuoteCreatePage />} />
-        <Route path="/customers" element={<CustomersPage />} />
+
+
 
         <Route path="/settings/profile" element={<SettingsProfilePage />} />
         <Route path="/settings/team" element={<SettingsTeamPage />} />

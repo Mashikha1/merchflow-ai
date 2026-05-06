@@ -71,12 +71,17 @@ export function Sidebar() {
   const user = useAuthStore((s) => s.user)
   const userRole = user?.role?.toUpperCase?.() || 'ADMIN'
 
-  // Filter nav items by role
   const allowed = NAV_ITEMS.filter(i => {
     if (userRole === 'VIEWER') {
-      const allowedForBuyer = ['Dashboard', 'Catalogs', 'Orders', 'Settings', 'Wishlist', 'Products', 'AI Studio', 'Media Library']
+      const allowedForBuyer = ['Dashboard', 'Catalogs', 'Orders', 'Settings', 'Wishlist', 'Products', 'AI Studio', 'Media Library', 'Quotes']
       return allowedForBuyer.includes(i.label)
     }
+    
+    // Hide completely from Sellers
+    if (i.label === 'Quotes' || i.label === 'Wishlist') {
+      return false
+    }
+
     return hasAccess(i.label, userRole)
   }).map(i => {
     if (userRole === 'VIEWER') {
@@ -87,9 +92,9 @@ export function Sidebar() {
     return i
   })
 
-  const primaryItems = allowed.filter(i => ['Dashboard', 'Products', 'Categories', 'Collections', 'Inventory'].includes(i.label))
+  const primaryItems = allowed.filter(i => ['Dashboard', 'Products', 'Inventory'].includes(i.label))
   const marketingItems = allowed.filter(i => ['Catalogs', 'Showrooms', 'AI Studio', 'Media Library'].includes(i.label))
-  const operationsItems = allowed.filter(i => ['Orders', 'Quotes', 'Customers', 'Imports'].includes(i.label))
+  const operationsItems = allowed.filter(i => ['Orders', 'Quotes'].includes(i.label))
   const systemItems = allowed.filter(i => ['Analytics', 'Activity', 'Settings', 'Help', 'Wishlist'].includes(i.label))
 
   const NavSection = ({ label, items }) => {

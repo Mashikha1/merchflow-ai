@@ -158,6 +158,6 @@ app.listen(PORT, () => {
   console.log(`🔑 JWT: enabled`)
   console.log(`📧 Email: ${process.env.SMTP_USER ? '✓ configured' : '✗ not configured'}`)
   console.log(`🤖 Gemini AI: ${process.env.GEMINI_API_KEY ? '✓ configured' : '✗ not configured'}`)
-  const aiEnabled = process.env.AILABTOOLS_API_KEY && process.env.AILABTOOLS_API_KEY !== 'YOUR_AILABTOOLS_API_KEY_HERE'
-  console.log(`🎨 AILabTools Try-On: ${aiEnabled ? '✓ configured' : '✗ not configured'}\n`)
+  const claidEnabled = process.env.CLAID_API_KEY && process.env.CLAID_API_KEY !== 'YOUR_CLAID_API_KEY_HERE'
+  console.log(`🎨 Claid AI Try-On: ${claidEnabled ? '✓ configured' : '✗ not configured'}\n`)
 })

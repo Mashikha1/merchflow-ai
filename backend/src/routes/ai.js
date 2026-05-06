@@ -8,9 +8,8 @@ router.use(requireAuth)
 
 const requireMerchandiser = requireRole('ADMIN', 'MERCHANDISER', 'SALES', 'DESIGNER')
 
-// ─── AILabTools API constants ─────────────────────────────────────────────────
-const AILAB_SUBMIT_URL = 'https://www.ailabapi.com/api/portrait/editing/try-on-clothes'
-const AILAB_POLL_URL   = 'https://www.ailabapi.com/api/common/query-async-task-result'
+// ─── Claid API constants ─────────────────────────────────────────────────
+const CLAID_SUBMIT_URL = 'https://api.claid.ai/v1/image/ai-fashion-models'
 
 // ─── Gemini Helper ────────────────────────────────────────────────────────────
 async function callGemini(prompt, imageUrl = null) {
@@ -52,13 +51,33 @@ async function urlToBuffer(url) {
     return { buffer, contentType }
 }
 
-// ─── Virtual Try-On (AILabTools) ─────────────────────────────────────────────
+// Helper: Upload local buffers to a public temporary host (since Claid cloud can't reach localhost)
+async function getPublicUrlForLocalImage(url) {
+    if (!url.includes('localhost') && !url.includes('127.0.0.1')) return url;
+    
+    console.log(`[TryOn] Uploading localhost image to public temporary host: ${url}`)
+    const imgData = await urlToBuffer(url)
+    const formData = new FormData()
+    formData.append('file', new Blob([imgData.buffer], { type: imgData.contentType }), 'image.jpg')
+    
+    const res = await fetch('https://tmpfiles.org/api/v1/upload', {
+        method: 'POST',
+        body: formData,
+        signal: AbortSignal.timeout(20000)
+    })
+    
+    if (!res.ok) throw new Error('Failed to upload image to temporary public host')
+    const json = await res.json()
+    return json.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/')
+}
+
+// ─── Virtual Try-On (Claid.ai) ─────────────────────────────────────────────
 async function processJobWithAILabTools(jobId, garmentUrl, personUrl, clothesType, seed, variations, createdById) {
     try {
         await prisma.aIJob.update({ where: { id: jobId }, data: { status: 'PROCESSING', progress: 10 } })
 
-        const apiKey = process.env.AILABTOOLS_API_KEY
-        const hasApiKey = apiKey && apiKey !== 'YOUR_AILABTOOLS_API_KEY_HERE'
+        const apiKey = process.env.CLAID_API_KEY
+        const hasApiKey = apiKey && apiKey !== 'YOUR_CLAID_API_KEY_HERE'
 
         await prisma.aIJob.update({ where: { id: jobId }, data: { progress: 20 } })
 
@@ -66,131 +85,140 @@ async function processJobWithAILabTools(jobId, garmentUrl, personUrl, clothesTyp
 
         try {
             if (!hasApiKey) {
-                console.warn(`[TryOn ${jobId}] AILABTOOLS_API_KEY is not configured — using demo fallback`)
+                console.warn(`[TryOn ${jobId}] CLAID_API_KEY is not configured — using demo fallback`)
                 // Skip processing, fallback will catch it
             } else {
-                // ── Step 1: Fetch images as buffers (AILabTools needs file uploads, not URLs) ──
-                console.log(`[TryOn ${jobId}] Fetching person image from: ${personUrl}`)
-                const personImg = await urlToBuffer(personUrl)
+                // ── Step 1: Submit to Claid.ai ─────────────
+                await prisma.aIJob.update({ where: { id: jobId }, data: { progress: 30 } })
+                
+                // If working locally, we must expose localhost images to Claid's cloud servers
+                const publicGarmentUrl = await getPublicUrlForLocalImage(garmentUrl)
+                const publicPersonUrl = await getPublicUrlForLocalImage(personUrl)
 
-            console.log(`[TryOn ${jobId}] Fetching garment image from: ${garmentUrl}`)
-            const garmentImg = await urlToBuffer(garmentUrl)
+                console.log(`[TryOn ${jobId}] Submitting to Claid.ai`)
 
-            // ── Step 2: Build multipart/form-data and submit to AILabTools ─────────────
-            await prisma.aIJob.update({ where: { id: jobId }, data: { progress: 30 } })
-
-            const formData = new FormData()
-            formData.append('task_type', 'async')
-            formData.append('clothes_type', clothesType || 'upper_body')
-            formData.append('person_image', new Blob([personImg.buffer], { type: personImg.contentType }), 'person.jpg')
-            formData.append('clothes_image', new Blob([garmentImg.buffer], { type: garmentImg.contentType }), 'garment.jpg')
-
-            console.log(`[TryOn ${jobId}] Submitting to AILabTools (clothes_type=${clothesType || 'upper_body'})`)
-
-            const submitRes = await fetch(AILAB_SUBMIT_URL, {
-                method: 'POST',
-                headers: { 'ailabapi-api-key': apiKey },
-                body: formData,
-                signal: AbortSignal.timeout(30000)
-            })
-
-            const submitData = await submitRes.json()
-            console.log(`[TryOn ${jobId}] AILabTools submit response:`, JSON.stringify(submitData))
-
-            if (submitData.error_code !== 0) {
-                console.warn(`[TryOn ${jobId}] AILabTools error: ${submitData.error_msg} — using fallback`)
-            } else {
-                const taskId = submitData.task_id
-                if (!taskId) {
-                    console.warn(`[TryOn ${jobId}] No task_id in response — using fallback`)
-                } else {
-                    console.log(`[TryOn ${jobId}] Got task_id: ${taskId}`)
-
-                    // ── Step 3: Poll for result ──────────────────────────────────────────
-                    // task_status: 0=queued, 1=processing, 2=completed
-                    const maxAttempts = 40  // 40 × 4s = 160s max
-                    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                        await new Promise(r => setTimeout(r, 4000))
-
-                        const progress = Math.min(35 + Math.floor((attempt / maxAttempts) * 55), 90)
-                        await prisma.aIJob.update({ where: { id: jobId }, data: { progress } })
-
-                        try {
-                            const pollRes = await fetch(
-                                `${AILAB_POLL_URL}?task_id=${taskId}`,
-                                {
-                                    headers: { 'ailabapi-api-key': apiKey },
-                                    signal: AbortSignal.timeout(10000)
-                                }
-                            )
-                            const pollData = await pollRes.json()
-                            console.log(`[TryOn ${jobId}] Poll #${attempt + 1}: task_status=${pollData.task_status}`)
-
-                            if (pollData.task_status === 2) {
-                                // Completed
-                                resultImageUrl = pollData.data?.image
-                                if (resultImageUrl) {
-                                    console.log(`[TryOn ${jobId}] ✅ Real try-on result: ${resultImageUrl}`)
-                                    try {
-                                        const fetchRes = await fetch(resultImageUrl)
-                                        if (fetchRes.ok) {
-                                            const arrayBuf = await fetchRes.arrayBuffer()
-                                            const buffer = Buffer.from(arrayBuf)
-                                            
-                                            const { v4: uuidv4 } = await import('uuid')
-                                            const path = await import('path')
-                                            const fs = await import('fs')
-                                            const { fileURLToPath } = await import('url')
-                                            const __filename = fileURLToPath(import.meta.url)
-                                            const __dirname = path.dirname(__filename)
-
-                                            const localFilename = `${uuidv4()}.jpg`
-                                            const destPath = path.join(__dirname, '../../uploads', localFilename)
-                                            
-                                            fs.writeFileSync(destPath, buffer)
-                                            
-                                            const base = process.env.BACKEND_URL || 'http://localhost:4000'
-                                            resultImageUrl = `${base}/uploads/${localFilename}`
-                                            
-                                            // Automatically save to Media library
-                                            await prisma.media.create({
-                                                data: {
-                                                    filename: `AI_TryOn_${jobId}.jpg`,
-                                                    url: resultImageUrl,
-                                                    mimeType: 'image/jpeg',
-                                                    size: buffer.length,
-                                                    tags: ['ai', 'try-on'],
-                                                    createdById: createdById
-                                                }
-                                            })
-                                            console.log(`[TryOn ${jobId}] Saved local copy to Media library: ${resultImageUrl}`)
-                                        }
-                                    } catch (dlErr) {
-                                        console.error(`[TryOn ${jobId}] Failed to download AI image locally:`, dlErr.message)
-                                    }
-                                } else {
-                                    console.warn(`[TryOn ${jobId}] task_status=2 but no image in data — using fallback`)
-                                }
-                                break
-                            }
-
-                            if (pollData.error_code && pollData.error_code !== 0) {
-                                console.warn(`[TryOn ${jobId}] Poll error ${pollData.error_code}: ${pollData.error_msg} — using fallback`)
-                                break
-                            }
-                            // task_status 0 or 1 — still waiting
-                        } catch (pollErr) {
-                            console.warn(`[TryOn ${jobId}] Poll attempt ${attempt + 1} error: ${pollErr.message}`)
-                            // continue polling on network errors
-                        }
-                    }
-
-                    if (!resultImageUrl) {
-                        console.warn(`[TryOn ${jobId}] Timed out waiting for AILabTools result — using fallback`)
+                const payload = {
+                    input: {
+                        clothing: [publicGarmentUrl],
+                        model: publicPersonUrl
+                    },
+                    output: {
+                        number_of_images: 1,
+                        format: "jpeg"
+                    },
+                    options: {
+                        pose: "maintain original pose", // Optional
+                        background: "minimalistic studio background"
                     }
                 }
-            }
-            } // Close else
+
+                const submitRes = await fetch(CLAID_SUBMIT_URL, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(30000)
+                })
+
+                const submitJson = await submitRes.json()
+                const submitData = submitJson.data || submitJson
+                console.log(`[TryOn ${jobId}] Claid submit response:`, JSON.stringify(submitData))
+
+                if (!submitRes.ok || submitData.error) {
+                    console.warn(`[TryOn ${jobId}] Claid error: ${JSON.stringify(submitData)} — using fallback`)
+                } else {
+                    const taskId = submitData.id
+                    let resultUrl = submitData.result_url || `https://api.claid.ai/v1/image/ai-fashion-models/${taskId}`
+                    
+                    // Claid sometimes returns http:// which causes 308 redirects that strip Auth headers
+                    if (resultUrl.startsWith('http://')) {
+                        resultUrl = resultUrl.replace('http://', 'https://')
+                    }
+                    
+                    if (!taskId && !resultUrl) {
+                        console.warn(`[TryOn ${jobId}] No task_id in response — using fallback`)
+                    } else {
+                        console.log(`[TryOn ${jobId}] Got Claid task_id: ${taskId}, polling url: ${resultUrl}`)
+
+                        // ── Step 2: Poll for result ──────────────────────────────────────────
+                        const maxAttempts = 40  // 40 × 4s = 160s max
+                        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                            await new Promise(r => setTimeout(r, 4000))
+                            const progress = Math.min(35 + Math.floor((attempt / maxAttempts) * 55), 90)
+                            await prisma.aIJob.update({ where: { id: jobId }, data: { progress } })
+
+                            try {
+                                const pollRes = await fetch(resultUrl, {
+                                    headers: { 'Authorization': `Bearer ${apiKey}` },
+                                    signal: AbortSignal.timeout(10000)
+                                })
+                                const pollJson = await pollRes.json()
+                                const pollData = pollJson.data || pollJson
+                                
+                                console.log(`[TryOn ${jobId}] Poll #${attempt + 1}: status=${pollData.status}`)
+
+                                if (pollData.status === 'DONE') {
+                                    const imgUrl = pollData.result?.output_objects?.[0]?.tmp_url
+                                    
+                                    if (imgUrl) {
+                                        resultImageUrl = imgUrl
+                                        console.log(`[TryOn ${jobId}] ✅ Real try-on result: ${resultImageUrl}`)
+                                        // Save locally
+                                        try {
+                                            const fetchRes = await fetch(resultImageUrl)
+                                            if (fetchRes.ok) {
+                                                const arrayBuf = await fetchRes.arrayBuffer()
+                                                const buffer = Buffer.from(arrayBuf)
+                                                
+                                                const { v4: uuidv4 } = await import('uuid')
+                                                const path = await import('path')
+                                                const fs = await import('fs')
+                                                const { fileURLToPath } = await import('url')
+                                                const __filename = fileURLToPath(import.meta.url)
+                                                const __dirname = path.dirname(__filename)
+
+                                                const localFilename = `${uuidv4()}.jpg`
+                                                const destPath = path.join(__dirname, '../../uploads', localFilename)
+                                                
+                                                fs.writeFileSync(destPath, buffer)
+                                                
+                                                const base = process.env.BACKEND_URL || 'http://localhost:4000'
+                                                resultImageUrl = `${base}/uploads/${localFilename}`
+                                                
+                                                await prisma.media.create({
+                                                    data: {
+                                                        filename: `AI_TryOn_${jobId}.jpg`,
+                                                        url: resultImageUrl,
+                                                        mimeType: 'image/jpeg',
+                                                        size: buffer.length,
+                                                        tags: ['ai', 'try-on'],
+                                                        createdById: createdById
+                                                    }
+                                                })
+                                                console.log(`[TryOn ${jobId}] Saved local copy to Media library: ${resultImageUrl}`)
+                                            }
+                                        } catch (dlErr) {
+                                            console.error(`[TryOn ${jobId}] Failed to download AI image locally:`, dlErr.message)
+                                        }
+                                    } else {
+                                        console.warn(`[TryOn ${jobId}] Status DONE but couldn't parse image URL`)
+                                    }
+                                    break
+                                }
+
+                                if (pollData.status === 'ERROR') {
+                                    console.warn(`[TryOn ${jobId}] Poll error: ${JSON.stringify(pollData.errors)} — using fallback`)
+                                    break
+                                }
+                            } catch (pollErr) {
+                                console.warn(`[TryOn ${jobId}] Poll attempt ${attempt + 1} error: ${pollErr.message}`)
+                            }
+                        }
+                    }
+                }
+            } 
         } catch (submitErr) {
             console.warn(`[TryOn ${jobId}] Submit error: ${submitErr.message} — using fallback`)
         }
