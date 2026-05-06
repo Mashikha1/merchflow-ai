@@ -1,13 +1,14 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useRef, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
-import { Plus, Search, Filter, LayoutGrid, List, FileText, Image as ImageIcon, Briefcase, FileSignature, Layers } from 'lucide-react'
+import { Plus, Search, Filter, LayoutGrid, List, FileText, Image as ImageIcon, Briefcase, FileSignature, Layers, MoreHorizontal, Trash2, Edit2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { catalogService } from '../../services/catalogService'
 import { Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 const TABS = [
     { id: 'all', label: 'All Catalogs' },
@@ -21,11 +22,46 @@ const TABS = [
 
 export function CatalogsPage() {
     const [activeTab, setActiveTab] = useState('all')
+    const [menuOpenId, setMenuOpenId] = useState(null)
+    const menuRef = useRef(null)
+    const navigate = useNavigate()
+    const qc = useQueryClient()
 
     const { data: catalogs = [], isLoading } = useQuery({
         queryKey: ['catalogs'],
         queryFn: () => catalogService.getCatalogs()
     })
+
+    const deleteM = useMutation({
+        mutationFn: (id) => catalogService.deleteCatalog(id),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['catalogs'] })
+            toast.success('Catalog deleted successfully')
+            setMenuOpenId(null)
+        },
+        onError: () => {
+            toast.error('Failed to delete catalog')
+        }
+    })
+
+    const handleDelete = (e, id) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (window.confirm('Are you sure you want to delete this catalog?')) {
+            deleteM.mutate(id)
+        }
+    }
+
+    // Close menu on click outside
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setMenuOpenId(null)
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside)
+        return () => document.removeEventListener("mousedown", handleClickOutside)
+    }, [])
 
     const filteredCatalogs = catalogs.filter(c => {
         if (activeTab === 'all') return true
@@ -140,13 +176,47 @@ export function CatalogsPage() {
                                             {catalog.type}
                                         </div>
 
-                                        <div className="absolute top-3 right-3">
+                                        <div className="absolute top-3 right-3 flex items-center gap-2">
                                             <span className={cn(
                                                 "px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border",
                                                 catalog.status === 'Published' ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"
                                             )}>
                                                 {catalog.status}
                                             </span>
+                                            
+                                            <div className="relative" ref={menuOpenId === catalog.id ? menuRef : null}>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        setMenuOpenId(menuOpenId === catalog.id ? null : catalog.id)
+                                                    }}
+                                                    className="h-6 w-6 flex items-center justify-center rounded-md bg-white/90 backdrop-blur-sm border border-gray-100 text-gray-500 hover:text-gray-900 shadow-sm transition-colors"
+                                                >
+                                                    <MoreHorizontal size={14} />
+                                                </button>
+
+                                                {menuOpenId === catalog.id && (
+                                                    <div className="absolute right-0 mt-2 w-32 bg-white border border-border-subtle rounded-lg shadow-xl z-50 overflow-hidden py-1 animate-in slide-in-from-top-2 duration-200">
+                                                        <button
+                                                            className="w-full px-4 py-2 text-left text-xs font-medium text-content-primary hover:bg-app-hover flex items-center gap-2"
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                navigate(`/catalogs/${catalog.id}/builder`)
+                                                            }}
+                                                        >
+                                                            <Edit2 size={14} /> Edit
+                                                        </button>
+                                                        <button
+                                                            className="w-full px-4 py-2 text-left text-xs font-medium text-semantic-error hover:bg-red-50 flex items-center gap-2"
+                                                            onClick={(e) => handleDelete(e, catalog.id)}
+                                                        >
+                                                            <Trash2 size={14} /> Delete
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 

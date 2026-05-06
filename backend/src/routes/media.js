@@ -36,12 +36,18 @@ function mediaUrl(filename) {
 // GET /api/media
 router.get('/', async (req, res, next) => {
     try {
-        const { search, tag } = req.query
+        const { search, tag, isAi } = req.query
         const media = await prisma.media.findMany({
             where: {
                 createdById: req.user.id,
-                ...(search && { filename: { contains: search, mode: 'insensitive' } }),
-                ...(tag && { tags: { has: tag } })
+                ...(search && {
+                    OR: [
+                        { filename: { contains: search, mode: 'insensitive' } },
+                        { tags: { has: search } }
+                    ]
+                }),
+                ...(tag && { tags: { has: tag } }),
+                ...(isAi === 'true' && { tags: { has: 'ai' } })
             },
             orderBy: { createdAt: 'desc' }
         })
@@ -53,6 +59,11 @@ router.get('/', async (req, res, next) => {
 router.post('/upload', upload.array('files', 20), async (req, res, next) => {
     try {
         if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' })
+        
+        const { folder, tags, isAi, productId } = req.body
+        const tagList = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []
+        if (isAi === 'true') tagList.push('ai')
+
         const created = await Promise.all(
             req.files.map(f => prisma.media.create({
                 data: {
@@ -60,7 +71,9 @@ router.post('/upload', upload.array('files', 20), async (req, res, next) => {
                     url: mediaUrl(f.filename),
                     mimeType: f.mimetype,
                     size: f.size,
-                    tags: [],
+                    tags: tagList,
+                    folder: folder || 'All Media',
+                    productId: productId || null,
                     createdById: req.user.id
                 }
             }))

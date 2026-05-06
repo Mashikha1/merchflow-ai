@@ -87,33 +87,6 @@ export function Topbar() {
           <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-brand ring-2 ring-white" />
         </button>
 
-        {/* Theme Dropdown */}
-        <div className="relative hidden sm:block" ref={themeRef}>
-          <button
-            onClick={() => setThemeOpen(!themeOpen)}
-            className="p-2 text-content-tertiary hover:text-content-primary hover:bg-app-hover rounded-md transition-colors flex items-center justify-center"
-          >
-            {theme === 'dark' ? <Moon className="h-[20px] w-[20px]" /> : theme === 'light' ? <Sun className="h-[20px] w-[20px]" /> : <Monitor className="h-[20px] w-[20px]" />}
-          </button>
-          {themeOpen && (
-            <div className="absolute right-0 top-full mt-2 w-36 bg-white rounded-md shadow-card border border-border-subtle overflow-hidden py-1 z-50 animate-in fade-in slide-in-from-top-2">
-              {['light', 'dark', 'system'].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => { setTheme(t); setThemeOpen(false) }}
-                  className={cn(
-                    "w-full px-3 py-1.5 text-left text-sm font-medium transition-colors hover:bg-app-hover capitalize",
-                    theme === t ? "text-brand" : "text-content-secondary"
-                  )}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Profile */}
         <div className="relative" ref={profileRef}>
           <button
             onClick={() => setProfileOpen(!profileOpen)}

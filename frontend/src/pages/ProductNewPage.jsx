@@ -11,6 +11,7 @@ import { RightDrawer } from '../components/RightDrawer'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { catalogService } from '../services/catalogService'
 import { productService } from '../services/productService'
+import { mediaService } from '../services/mediaService'
 
 const STEPS = [
   { id: 1, label: 'Basic Info' },
@@ -27,6 +28,7 @@ export function ProductNewPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [createdProductId, setCreatedProductId] = useState(null)
+  const [createdProduct, setCreatedProduct] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
   const [mode, setMode] = useState('existing') // 'existing' | 'new'
   const [existingId, setExistingId] = useState('')
@@ -166,6 +168,7 @@ export function ProductNewPage() {
       }
       queryClient.invalidateQueries({ queryKey: ['products'] })
       setCreatedProductId(createdProduct?.id || null)
+      setCreatedProduct(createdProduct || null)
       setShowSuccess(true)
       setIsSubmitting(false)
     },
@@ -182,6 +185,27 @@ export function ProductNewPage() {
     }
     setIsSubmitting(true)
     const sku = formData.sku || `SKU-${Math.random().toString(36).substr(2, 6).toUpperCase()}`
+
+    const persistedImageUrls = (formData.images || [])
+      .map((img) => img.url)
+      .filter((url) => typeof url === 'string' && !url.startsWith('blob:'))
+    let uploadedImageUrls = [...persistedImageUrls]
+    const imageFiles = (formData.images || []).map((img) => img.file).filter(Boolean)
+    if (imageFiles.length > 0) {
+      try {
+        const fd = new FormData()
+        imageFiles.forEach((file) => fd.append('files', file))
+        fd.append('folder', 'Products')
+        const uploaded = await mediaService.upload(fd)
+        const newlyUploadedUrls = Array.isArray(uploaded) ? uploaded.map((m) => m.url).filter(Boolean) : []
+        uploadedImageUrls = [...uploadedImageUrls, ...newlyUploadedUrls]
+      } catch (err) {
+        toast.error('Failed to upload product images')
+        setIsSubmitting(false)
+        return
+      }
+    }
+
     createProductM.mutate({
       name: formData.name, sku,
       description: formData.description,
@@ -189,7 +213,7 @@ export function ProductNewPage() {
       cost: Number(formData.wholesalePrice) || 0,
       stock: Number(formData.stock) || 0,
       status: formData.status === 'Draft' ? 'DRAFT' : formData.status === 'Active' ? 'ACTIVE' : 'ARCHIVED',
-      images: formData.images.map(img => img.url),
+      images: uploadedImageUrls,
       tags: formData.tags ? formData.tags.split(',').map(s => s.trim()) : []
     })
   }
@@ -284,8 +308,17 @@ export function ProductNewPage() {
                     if (!targetId) { toast.message('Choose a catalog'); return }
                     const target = await catalogService.getCatalog(targetId)
                     const items = target.items || []
-                    const p = formData
-                    const addItem = { id: p.slug || `prod_${Date.now()}`, sku: p.sku, name: p.name }
+                    const productId = createdProduct?.id || createdProductId
+                    const p = createdProduct || formData
+                    const addItem = {
+                      id: productId || p.slug || `prod_${Date.now()}`,
+                      sku: p.sku,
+                      name: p.name
+                    }
+                    const firstImage = p.images?.[0]
+                    if (firstImage) {
+                      addItem.image = firstImage
+                    }
                     await catalogService.updateCatalog(targetId, { items: [...items, addItem] })
                     toast.success('Added to catalog', { description: p.name || 'Product' })
                     setAddOpen(false)
@@ -506,11 +539,22 @@ export function ProductNewPage() {
                     accept={{ 'image/*': [] }}
                     maxFiles={10}
                     helper="Drag & drop product images, or click to browse. (Max 10MB per file)"
-                    onFiles={(files) => {
-                      if (files?.length) {
-                        const newImages = Array.from(files).map((f, i) => ({ id: `img_${Date.now()}_${i}`, url: URL.createObjectURL(f), name: f.name }))
+                    onFiles={async (files) => {
+                      if (!files?.length) return
+                      try {
+                        const fd = new FormData()
+                        Array.from(files).forEach((file) => fd.append('files', file))
+                        fd.append('folder', 'Products')
+                        const uploaded = await mediaService.upload(fd)
+                        const newImages = (Array.isArray(uploaded) ? uploaded : []).map((m, i) => ({
+                          id: m.id || `img_${Date.now()}_${i}`,
+                          url: m.url,
+                          name: m.filename || m.url
+                        }))
                         setFormData(prev => ({ ...prev, images: [...prev.images, ...newImages] }))
-                        toast.success(`${files.length} images uploaded`)
+                        toast.success(`${newImages.length} images uploaded`)
+                      } catch (err) {
+                        toast.error(err?.message || 'Image upload failed')
                       }
                     }}
                   />

@@ -26,22 +26,43 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
     try {
-        const { name, description, type, layout, status } = req.body
+        const { name, slug, description, type, layout, status, coverImage, rules } = req.body
         if (!name) return res.status(400).json({ error: 'name required' })
-        const col = await prisma.collection.create({ data: { name, description, type, layout, status, createdById: req.user.id } })
+        const col = await prisma.collection.create({ 
+            data: { 
+                name, 
+                slug,
+                description, 
+                type, 
+                layout, 
+                status, 
+                coverImage,
+                rules: rules || {},
+                createdById: req.user.id 
+            } 
+        })
         res.status(201).json(col)
     } catch (err) { next(err) }
 })
 
 router.put('/:id', async (req, res, next) => {
     try {
-        const { name, description, type, layout, status } = req.body
+        const { name, slug, description, type, layout, status, coverImage, rules } = req.body
         const existing = await prisma.collection.findUnique({ where: { id: req.params.id } })
         if (!existing || (existing.createdById && existing.createdById !== req.user.id)) return res.status(404).json({ error: 'Collection not found' })
 
         const col = await prisma.collection.update({
             where: { id: req.params.id },
-            data: { ...(name && { name }), ...(description !== undefined && { description }), ...(type && { type }), ...(layout && { layout }), ...(status && { status }) }
+            data: { 
+                ...(name && { name }), 
+                ...(slug && { slug }),
+                ...(description !== undefined && { description }), 
+                ...(type && { type }), 
+                ...(layout && { layout }), 
+                ...(status && { status }),
+                ...(coverImage !== undefined && { coverImage }),
+                ...(rules !== undefined && { rules })
+            }
         })
         res.json(col)
     } catch (err) { next(err) }

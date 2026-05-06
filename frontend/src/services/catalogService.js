@@ -6,4 +6,5 @@ export const catalogService = {
     createCatalog: (data) => api.post('/catalogs', data),
     updateCatalog: (id, data) => api.put(`/catalogs/${id}`, data),
     deleteCatalog: (id) => api.delete(`/catalogs/${id}`),
+    exportPdf: (id, sections, themeColor, fontFamily) => api.post(`/catalogs/${id}/export-pdf`, { sections, themeColor, fontFamily }, { responseType: 'blob' }),
 }
