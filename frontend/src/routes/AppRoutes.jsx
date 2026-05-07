@@ -36,6 +36,7 @@ import { CatalogNewPage } from '../pages/catalogs/CatalogNewPage'
 import { CatalogSetupPage } from '../pages/catalogs/CatalogSetupPage'
 import { CatalogDetailPage } from '../pages/catalogs/CatalogDetailPage'
 import { CatalogBuilderPage } from '../pages/catalogs/CatalogBuilderPage'
+import { CatalogPrintPage } from '../pages/catalogs/CatalogPrintPage'
 
 import { LookbooksPage } from '../pages/lookbooks/LookbooksPage'
 import { LookbookBuilderPage } from '../pages/lookbooks/LookbookBuilderPage'
@@ -58,6 +59,7 @@ import { SettingsAIPage } from '../pages/settings/SettingsAIPage'
 import { PublicShowroomPage } from '../pages/public/PublicShowroomPage'
 import { PublicShowroomProductPage } from '../pages/public/PublicShowroomProductPage'
 import { PublicShowroomWishlistPage } from '../pages/public/PublicShowroomWishlistPage'
+import { PublicShowroomCartPage } from '../pages/public/PublicShowroomCartPage'
 import { PublicShowroomRequestQuotePage } from '../pages/public/PublicShowroomRequestQuotePage'
 import { PublicShowroomRequestSamplePage } from '../pages/public/PublicShowroomRequestSamplePage'
 import { BuyerHomePage } from '../pages/buyer/BuyerHomePage'
@@ -173,8 +175,12 @@ export function AppRoutes() {
       <Route path="/s/:slug" element={<PublicShowroomPage />} />
       <Route path="/s/:slug/products/:id" element={<PublicShowroomProductPage />} />
       <Route path="/s/:slug/wishlist" element={<PublicShowroomWishlistPage />} />
+      <Route path="/s/:slug/cart" element={<PublicShowroomCartPage />} />
       <Route path="/s/:slug/request-quote" element={<PublicShowroomRequestQuotePage />} />
       <Route path="/s/:slug/request-sample" element={<PublicShowroomRequestSamplePage />} />
+
+      {/* Catalog print route — full page, auto-downloads PDF */}
+      <Route path="/catalog-print/:id" element={<RequireAuth><CatalogPrintPage /></RequireAuth>} />
 
       {/* Buyer portal — requires auth */}
       <Route element={<RequireAuth><AppShell /></RequireAuth>}>
