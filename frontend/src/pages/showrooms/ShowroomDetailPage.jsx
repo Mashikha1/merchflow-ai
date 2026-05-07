@@ -9,11 +9,13 @@ import { Badge } from '../../components/ui/Badge'
 import { Skeleton } from '../../components/ui/Skeleton'
 import api from '../../lib/api'
 
+import { ShowroomBuilderTab } from './ShowroomBuilderTab'
+
 export function ShowroomDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState('builder')
 
   const { data: showroom, isLoading } = useQuery({
     queryKey: ['showrooms', id],
@@ -35,6 +37,7 @@ export function ShowroomDetailPage() {
   if (!showroom) return <div className="p-8 text-center text-content-secondary">Showroom not found</div>
 
   const tabs = [
+    { id: 'builder', label: 'Builder' },
     { id: 'overview', label: 'Overview' },
     { id: 'settings', label: 'Settings' },
     { id: 'analytics', label: 'Analytics' },
@@ -70,6 +73,10 @@ export function ShowroomDetailPage() {
           </button>
         ))}
       </div>
+
+      {tab === 'builder' && (
+        <ShowroomBuilderTab />
+      )}
 
       {tab === 'overview' && (
         <div className="grid gap-6 lg:grid-cols-3">
