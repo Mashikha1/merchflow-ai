@@ -4,12 +4,14 @@ import { PageHeader } from '../../components/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import {
-    Save, Eye, Monitor, Smartphone, LayoutGrid, Type, Image as ImageIcon, Plus, Trash2, ArrowLeft, Shirt, AlignLeft, HelpCircle, Columns, Table, DollarSign, Download, Layers, Sparkles, ArrowUp, ArrowDown, Copy, Edit2, Mail, Phone, MapPin
+    Save, Eye, Monitor, Smartphone, LayoutGrid, Type, Image as ImageIcon, Plus, Trash2, ArrowLeft, Shirt, AlignLeft, HelpCircle, Columns, Table, DollarSign, Download, Layers, Sparkles, ArrowUp, ArrowDown, Copy, Edit2, Mail, Phone, MapPin, X
 } from 'lucide-react'
 import { catalogService } from '../../services/catalogService'
+import { api } from '../../lib/api'
+import { productService } from '../../services/productService'
+import html2pdf from 'html2pdf.js'
 import { toast } from 'sonner'
 import { cn } from '../../lib/cn'
-import { productService } from '../../services/productService'
 
 // Expanding the builder blocks as requested
 const BLOCKS = [
@@ -25,7 +27,7 @@ const BLOCKS = [
     { type: 'footer', icon: LayoutGrid, label: 'Footer' },
 ]
 
-export function CatalogBuilderPage() {
+export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onExportDone }) {
     const { id } = useParams()
     const location = useLocation()
     const navigate = useNavigate()
@@ -34,6 +36,7 @@ export function CatalogBuilderPage() {
     const [loading, setLoading] = useState(true)
     const [products, setProducts] = useState([])
     const [selectedProducts, setSelectedProducts] = useState([])
+    const [isExporting, setExporting] = useState(false)
 
     // Interaction State
     const [selectedSectionId, setSelectedSectionId] = useState(null)
@@ -45,7 +48,7 @@ export function CatalogBuilderPage() {
     const fileInputRef = useRef(null)
     const [uploadCtx, setUploadCtx] = useState(null) // { sectionId, key }
 
-    const printMode = new URLSearchParams(location.search).get('print') === '1'
+    const [printMode, setPrintMode] = useState(new URLSearchParams(location.search).get('print') === '1')
 
     useEffect(() => {
         const loadCatalog = async () => {
@@ -73,31 +76,62 @@ export function CatalogBuilderPage() {
                     } catch {}
                 }
 
-                const initialSections = []
-                let counter = 1
+                let loadedSections = []
+                if (data.sections && Array.isArray(data.sections) && data.sections.length > 0) {
+                    loadedSections = data.sections
+                } else {
+                    const initialSections = []
+                    let counter = 1
 
-                if (data.toggles?.intro !== false) {
-                    initialSections.push({ id: `s_${counter++}`, type: 'hero', data: { title: data.name, subtitle: 'Season Preview' } })
-                    initialSections.push({ id: `s_${counter++}`, type: 'brand_intro', data: { content: data.description || 'Welcome to our premium collection.' } })
+                    if (data.toggles?.intro !== false) {
+                        initialSections.push({ id: `s_${counter++}`, type: 'hero', data: { title: data.name, subtitle: 'Season Preview' } })
+                        initialSections.push({ id: `s_${counter++}`, type: 'brand_intro', data: { content: data.description || 'Welcome to our premium collection.' } })
+                    }
+
+                    if (data.type === 'lookbook') {
+                        if (data.toggles?.aiAssets) initialSections.push({ id: `s_${counter++}`, type: 'ai_tryon', data: { content: 'Virtual Try-On Experience' } })
+                        initialSections.push({ id: `s_${counter++}`, type: 'product_grid', data: { content: 'The Full Lookbook' } })
+                    } else if (data.type === 'line-sheet') {
+                        initialSections.push({ id: `s_${counter++}`, type: 'product_grid', data: { content: 'Products Overview' } })
+                        if (data.toggles?.specs) initialSections.push({ id: `s_${counter++}`, type: 'specs', data: { content: 'Technical Specifications' } })
+                        if (data.toggles?.pricing) initialSections.push({ id: `s_${counter++}`, type: 'pricing', data: { content: 'Wholesale Pricing Tiers' } })
+                    } else if (data.type === 'price-list') {
+                        initialSections.push({ id: `s_${counter++}`, type: 'pricing', data: { content: 'Master Price List' } })
+                    }
+
+                    initialSections.push({ id: `s_${counter++}`, type: 'contact', data: { content: 'Get in Touch' } })
+                    loadedSections = initialSections
                 }
 
-                if (data.type === 'lookbook') {
-                    if (data.toggles?.aiAssets) initialSections.push({ id: `s_${counter++}`, type: 'ai_tryon', data: { content: 'Virtual Try-On Experience' } })
-                    initialSections.push({ id: `s_${counter++}`, type: 'product_grid', data: { content: 'The Full Lookbook' } })
-                } else if (data.type === 'line-sheet') {
-                    initialSections.push({ id: `s_${counter++}`, type: 'product_grid', data: { content: 'Products Overview' } })
-                    if (data.toggles?.specs) initialSections.push({ id: `s_${counter++}`, type: 'specs', data: { content: 'Technical Specifications' } })
-                    if (data.toggles?.pricing) initialSections.push({ id: `s_${counter++}`, type: 'pricing', data: { content: 'Wholesale Pricing Tiers' } })
-                } else if (data.type === 'price-list') {
-                    initialSections.push({ id: `s_${counter++}`, type: 'pricing', data: { content: 'Master Price List' } })
+                // Sync newly added products from catalog.items into the product_grid section
+                if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+                    loadedSections = loadedSections.map(s => {
+                        if (s.type === 'product_grid') {
+                            const gridItems = s.data?.items || []
+                            const existingGridItemIds = new Set(gridItems.map(it => it.id))
+                            
+                            // Find any newly added products from data.items that are NOT yet in the grid
+                            const missingItems = data.items.filter(it => !existingGridItemIds.has(it.id))
+                            
+                            // Filter out empty placeholder items (id: 'p1', 'p2', etc) if we are adding real products
+                            const actualGridItems = gridItems.filter(it => !String(it.id).startsWith('p') || it.name || it.image)
+                            
+                            if (missingItems.length > 0 || (actualGridItems.length === 0 && data.items.length > 0)) {
+                                return {
+                                    ...s,
+                                    data: {
+                                        ...s.data,
+                                        items: [...actualGridItems, ...missingItems]
+                                    }
+                                }
+                            }
+                        }
+                        return s
+                    })
                 }
 
-                initialSections.push({ id: `s_${counter++}`, type: 'contact', data: { content: 'Get in Touch' } })
-
-                setSections(initialSections)
-
-                // Set initial selection
-                if (initialSections.length > 0) setSelectedSectionId(initialSections[0].id)
+                setSections(loadedSections)
+                setSelectedSectionId(loadedSections.length > 0 ? loadedSections[0].id : null)
 
             } catch (_) {
                 console.error('Failed to fetch catalog:', _)
@@ -132,22 +166,24 @@ export function CatalogBuilderPage() {
                 document.head.appendChild(style)
                 document.body.classList.add('only-catalog-print')
 
-                const root = document.getElementById('root')
-                if (root) {
-                    const hidden = []
-                    Array.from(root.children).forEach((el) => {
-                        if (!el.querySelector?.('#catalog-print-root')) {
-                            el.setAttribute('data-prev-display', el.style.display || '')
-                            el.style.display = 'none'
-                            hidden.push(el)
-                        }
-                    })
-                    ;(window).__CAT_PRINT_RESTORE__ = () => {
-                        hidden.forEach((el) => {
-                            const prev = el.getAttribute('data-prev-display') || ''
-                            el.style.display = prev
-                            el.removeAttribute('data-prev-display')
+                if (!buyerMode) {
+                    const root = document.getElementById('root')
+                    if (root) {
+                        const hidden = []
+                        Array.from(root.children).forEach((el) => {
+                            if (!el.querySelector?.('#catalog-print-root')) {
+                                el.setAttribute('data-prev-display', el.style.display || '')
+                                el.style.display = 'none'
+                                hidden.push(el)
+                            }
                         })
+                        ;(window).__CAT_PRINT_RESTORE__ = () => {
+                            hidden.forEach((el) => {
+                                const prev = el.getAttribute('data-prev-display') || ''
+                                el.style.display = prev
+                                el.removeAttribute('data-prev-display')
+                            })
+                        }
                     }
                 }
             } catch {}
@@ -167,91 +203,83 @@ export function CatalogBuilderPage() {
                 try { (window).__CAT_PRINT_RESTORE__?.() } catch {}
             }
         }
-    }, [printMode, catalog, sections, products])
+    }, [printMode, catalog, sections, products, buyerMode])
 
-    const toDataUrl = async (url) => {
-        if (!url) return null
-        if (url.startsWith('data:')) return url
-        if (url.startsWith('blob:')) {
-            const res = await fetch(url)
-            const blob = await res.blob()
-            const reader = new FileReader()
-            return await new Promise((resolve) => {
-                reader.onloadend = () => resolve(reader.result)
-                reader.readAsDataURL(blob)
+    useEffect(() => {
+        if (autoExport && catalog && !exporting) {
+            handleGeneratePdf().then(() => {
+                if (onExportDone) onExportDone()
             })
         }
-        return url
-    }
+    }, [autoExport, catalog])
 
-    const serializeSections = async (secs) => {
-        const out = []
-        for (const s of secs) {
-            const data = { ...s.data }
-            const keys = Object.keys(data || {})
-            for (const k of keys) {
-                const v = data[k]
-                if (typeof v === 'string' && (v.startsWith('blob:') || v.startsWith('data:'))) {
-                    data[k] = await toDataUrl(v)
-                }
-            }
-            out.push({ ...s, data })
-        }
-        return out
-    }
 
     const handleGeneratePdf = async () => {
         if (!catalog) return
         try {
-            toast.message('Generating PDF…', { description: 'Rendering with headless Chrome' })
-            let sectionsPayload = await serializeSections(sections)
-            sectionsPayload = sectionsPayload.filter((s) => {
-                if (s.type === 'product_grid') return true
-                if (s.type === 'hero') return !!(s.data?.image || s.data?.title)
-                if (s.type === 'brand_intro') return !!(s.data?.logo || s.data?.content)
-                if (s.type === 'collection_intro') return !!s.data?.content
-                if (s.type === 'featured_product') return !!(s.data?.image || s.data?.content)
-                if (s.type === 'pricing') return true
-                if (s.type === 'specs') return true
-                if (s.type === 'contact') return true
-                if (s.type === 'footer') return true
-                // Include AI Try-On only when explicitly enabled by section flag
-                if (s.type === 'ai_tryon') return s.data?.enabled === true
-                return false
-            })
-            const auth = JSON.parse(localStorage.getItem('merchflow_auth') || '{}')
-            const token = auth?.state?.token || null
-            const res = await fetch(`/api/export`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                body: JSON.stringify({ catalogId: catalog.id, sections: sectionsPayload })
-            })
-            const ct = res.headers.get('content-type') || ''
-            if (!res.ok) {
-                const msg = await res.text().catch(() => '')
-                throw new Error(msg || 'Request failed')
+            setExporting(true)
+
+            if (!buyerMode) {
+                // Auto-save all recent changes (only for sellers)
+                toast.message('Saving catalog changes...')
+                const { updatedSections, newCatalogItems } = await syncDraftProductsToBackend(catalog.status === 'Published' ? 'ACTIVE' : 'DRAFT')
+                await catalogService.updateCatalog(catalog.id, {
+                    status: catalog.status,
+                    themeColor: themeColor,
+                    sections: updatedSections,
+                    items: newCatalogItems
+                })
+                setCatalog(prev => ({ ...prev, themeColor, sections: updatedSections, items: newCatalogItems }))
             }
-            if (!ct.includes('application/pdf')) {
-                const msg = await res.text().catch(() => '')
-                throw new Error(msg || 'Server did not return a PDF')
-            }
-            const raw = await res.arrayBuffer()
-            const blob = new Blob([raw], { type: 'application/pdf' })
-            const url = URL.createObjectURL(blob)
-            const safe = (catalog.name || 'catalog').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || 'catalog'
-            const filename = safe.endsWith('.pdf') ? safe : `${safe}.pdf`
-            const a = document.createElement('a')
-            a.href = url
-            a.setAttribute('download', filename)
-            document.body.appendChild(a)
-            a.click()
-            setTimeout(() => {
-                a.remove()
-                URL.revokeObjectURL(url)
-            }, 0)
-            toast.success('PDF exported')
+            
+            toast.message('Generating PDF…', { description: 'Rendering high-resolution file' })
+            setPrintMode(true)
+            
+            // Wait for DOM to update and layout to settle for print mode
+            await new Promise((resolve) => {
+                setTimeout(async () => {
+                    try {
+                        // Fallback to searching by class if ID isn't applied immediately
+                        const element = document.getElementById('catalog-print-root') || document.querySelector('.catalog-canvas-container')
+                        
+                        if (!element) {
+                            throw new Error("Could not find catalog layout")
+                        }
+
+                        const opt = {
+                            margin:       [0.2, 0, 0.2, 0], // Slight top/bottom margin for breathing room
+                            filename:     `${(catalog?.name || 'catalog').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`,
+                            image:        { type: 'jpeg', quality: 1 },
+                            html2canvas:  { 
+                                scale: 2, 
+                                useCORS: true, 
+                                letterRendering: true,
+                                windowWidth: 1200 // Force desktop viewport so Tailwind lg: classes trigger
+                            },
+                            jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' },
+                            pagebreak:    { mode: ['css', 'legacy'] }
+                        }
+
+                        await html2pdf().from(element).set(opt).save()
+                        
+                        setPrintMode(false)
+                        setExporting(false)
+                        toast.success('Catalog PDF downloaded successfully')
+                        resolve()
+                    } catch (err) {
+                        console.error("PDF Export error:", err)
+                        toast.error('Failed to generate PDF', { description: String(err?.message || err) })
+                        setPrintMode(false)
+                        setExporting(false)
+                        resolve()
+                    }
+                }, 800)
+            })
+            
         } catch (e) {
-            toast.error('Failed to export PDF', { description: String(e?.message || e) })
+            toast.error('Failed to save before export', { description: String(e?.message || e) })
+            setPrintMode(false)
+            setExporting(false)
         }
     }
 
@@ -264,13 +292,88 @@ export function CatalogBuilderPage() {
         }
     }
 
+    const syncDraftProductsToBackend = async (targetProductStatus) => {
+        let updatedSections = [...sections]
+        let newlyCreatedCount = 0
+        let allGridProductIds = []
+        let newCatalogItems = []
+        
+        for (let i = 0; i < updatedSections.length; i++) {
+            const sec = updatedSections[i]
+            if (sec.type === 'product_grid' && sec.data?.items) {
+                const updatedItems = [...sec.data.items]
+                for (let j = 0; j < updatedItems.length; j++) {
+                    const item = updatedItems[j]
+                    let finalId = item.id
+                    const isFakeId = (id) => String(id).startsWith('p_') || /^p\d+$/.test(String(id));
+                    
+                    if (isFakeId(item.id) && (item.name || item.image || item.price)) {
+                        try {
+                            let numPrice = 0
+                            if (item.price) {
+                                const parsed = parseFloat(String(item.price).replace(/[^0-9.]/g, ''))
+                                if (!isNaN(parsed)) numPrice = parsed
+                            }
+                            
+                            const newProduct = await productService.createProduct({
+                                name: item.name || 'Untitled Product',
+                                price: numPrice,
+                                images: item.image ? [item.image] : [],
+                                sku: `SKU-${Math.floor(Math.random()*100000)}`,
+                                status: targetProductStatus
+                            })
+                            
+                            updatedItems[j] = { ...item, id: newProduct.id }
+                            finalId = newProduct.id
+                            allGridProductIds.push(newProduct.id)
+                            newlyCreatedCount++
+                        } catch (err) {
+                            console.error('Failed to auto-create product from catalog', err)
+                        }
+                    } else if (!isFakeId(item.id)) {
+                        allGridProductIds.push(item.id)
+                    }
+                    
+                    if (!isFakeId(finalId)) {
+                        newCatalogItems.push({
+                            id: finalId,
+                            sku: updatedItems[j].sku || `SKU-${finalId.substring(0,4)}`,
+                            name: updatedItems[j].name || 'Untitled',
+                            price: updatedItems[j].price || '',
+                            image: updatedItems[j].image || null
+                        })
+                    }
+                }
+                updatedSections[i] = { ...sec, data: { ...sec.data, items: updatedItems } }
+            }
+        }
+        
+        if (targetProductStatus === 'ACTIVE' && allGridProductIds.length > 0) {
+            try {
+                await productService.bulkUpdateStatus(allGridProductIds, 'ACTIVE')
+            } catch (err) {
+                console.error('Failed to bulk publish products', err)
+            }
+        }
+        
+        if (newlyCreatedCount > 0) {
+            toast.success(`${newlyCreatedCount} new product(s) auto-saved to main inventory!`)
+            setSections(updatedSections)
+        }
+        
+        return { updatedSections, newCatalogItems }
+    }
+
     const handleSaveDraft = async () => {
         try {
+            const { updatedSections, newCatalogItems } = await syncDraftProductsToBackend('DRAFT')
             await catalogService.updateCatalog(catalog.id, {
                 status: 'Draft',
-                themeColor: themeColor
+                themeColor: themeColor,
+                sections: updatedSections,
+                items: newCatalogItems
             })
-            setCatalog(prev => ({ ...prev, status: 'Draft', themeColor }))
+            setCatalog(prev => ({ ...prev, status: 'Draft', themeColor, sections: updatedSections, items: newCatalogItems }))
             toast.success('Draft saved')
         } catch (error) {
             toast.error('Failed to save draft')
@@ -279,11 +382,14 @@ export function CatalogBuilderPage() {
 
     const handlePublish = async () => {
         try {
+            const { updatedSections, newCatalogItems } = await syncDraftProductsToBackend('ACTIVE')
             await catalogService.updateCatalog(catalog.id, {
                 status: 'Published',
-                themeColor: themeColor
+                themeColor: themeColor,
+                sections: updatedSections,
+                items: newCatalogItems
             })
-            setCatalog(prev => ({ ...prev, status: 'Published', themeColor }))
+            setCatalog(prev => ({ ...prev, status: 'Published', themeColor, sections: updatedSections, items: newCatalogItems }))
             toast.success('Catalog published globally')
         } catch (error) {
             toast.error('Failed to publish catalog')
@@ -423,26 +529,109 @@ export function CatalogBuilderPage() {
         }
     }
 
-    const openUpload = (sectionId, key) => {
-        setUploadCtx({ sectionId, key })
+    const openUpload = (sectionId, key, isGridItem = false, itemIdx = null) => {
+        setUploadCtx({ sectionId, key, isGridItem, itemIdx })
         fileInputRef.current?.click()
     }
 
-    const onFilePicked = (e) => {
+    const onFilePicked = async (e) => {
         const f = e.target.files?.[0]
         if (!f || !uploadCtx) return
-        const url = URL.createObjectURL(f)
-        setSections(prev => prev.map((s) => {
-            if (s.id !== uploadCtx.sectionId) return s
-            return { ...s, data: { ...s.data, [uploadCtx.key]: url } }
-        }))
-        toast.success('Image added')
+        
+        try {
+            toast.loading('Uploading image...', { id: 'img-upload' })
+            const formData = new FormData()
+            formData.append('files', f)
+            const data = await api.post('/media/upload', formData)
+            
+            if (data && data[0]?.url) {
+                const url = data[0].url
+                setSections(prev => prev.map((s) => {
+                    if (s.id !== uploadCtx.sectionId) return s
+                    if (uploadCtx.isGridItem) {
+                        const items = [...(s.data.items || [{id: 'p1'}, {id: 'p2'}, {id: 'p3'}])]
+                        items[uploadCtx.itemIdx] = { ...items[uploadCtx.itemIdx], image: url }
+                        return { ...s, data: { ...s.data, items } }
+                    }
+                    return { ...s, data: { ...s.data, [uploadCtx.key]: url } }
+                }))
+                toast.success('Image added', { id: 'img-upload' })
+            } else {
+                throw new Error('Invalid response')
+            }
+        } catch (err) {
+            console.error(err)
+            toast.error('Upload failed, falling back to local preview', { id: 'img-upload' })
+            const url = URL.createObjectURL(f)
+            setSections(prev => prev.map((s) => {
+                if (s.id !== uploadCtx.sectionId) return s
+                if (uploadCtx.isGridItem) {
+                    const items = [...(s.data.items || [{id: 'p1'}, {id: 'p2'}, {id: 'p3'}])]
+                    items[uploadCtx.itemIdx] = { ...items[uploadCtx.itemIdx], image: url }
+                    return { ...s, data: { ...s.data, items } }
+                }
+                return { ...s, data: { ...s.data, [uploadCtx.key]: url } }
+            }))
+        }
         e.target.value = ''
+        setUploadCtx(null)
     }
 
-    const removeImage = (sectionId, key) => {
-        setSections(prev => prev.map((s) => s.id === sectionId ? ({ ...s, data: { ...s.data, [key]: null } }) : s))
+    const removeImage = (sectionId, key, isGridItem = false, itemIdx = null) => {
+        setSections(prev => prev.map((s) => {
+            if (s.id !== sectionId) return s
+            if (isGridItem) {
+                const items = [...(s.data.items || [])]
+                if (items[itemIdx]) items[itemIdx] = { ...items[itemIdx], image: null }
+                return { ...s, data: { ...s.data, items } }
+            }
+            return { ...s, data: { ...s.data, [key]: null } }
+        }))
         toast.message('Image removed')
+    }
+
+    const removeProductFromGrid = async (sectionId, itemIdx, itemId) => {
+        // 1. Remove from visual grid
+        setSections(prev => prev.map((s) => {
+            if (s.id !== sectionId) return s
+            const items = [...(s.data.items || [])]
+            items.splice(itemIdx, 1)
+            return { ...s, data: { ...s.data, items } }
+        }))
+        
+        // 2. Remove from backend catalog.items
+        if (catalog && itemId && !String(itemId).startsWith('p')) {
+            try {
+                const newCatalogItems = (catalog.items || []).filter(it => it.id !== itemId)
+                setCatalog(prev => ({ ...prev, items: newCatalogItems }))
+                await catalogService.updateCatalog(catalog.id, { items: newCatalogItems })
+                toast.success('Product removed from catalog')
+            } catch (err) {
+                console.error('Failed to remove from backend', err)
+            }
+        }
+    }
+
+    const updateSectionData = (sectionId, key, value) => {
+        setSections(prev => prev.map((s) => s.id === sectionId ? ({ ...s, data: { ...s.data, [key]: value } }) : s))
+    }
+
+    const updateGridItem = (sectionId, itemIdx, key, value) => {
+        setSections(prev => prev.map((s) => {
+            if (s.id !== sectionId) return s
+            const items = [...(s.data.items || [{id: 'p1'}, {id: 'p2'}, {id: 'p3'}])]
+            items[itemIdx] = { ...items[itemIdx], [key]: value }
+            return { ...s, data: { ...s.data, items } }
+        }))
+    }
+    
+    const addGridItem = (sectionId) => {
+        setSections(prev => prev.map((s) => {
+            if (s.id !== sectionId) return s
+            const items = [...(s.data.items || [{id: 'p1'}, {id: 'p2'}, {id: 'p3'}])]
+            items.push({ id: `p_${Date.now()}` })
+            return { ...s, data: { ...s.data, items } }
+        }))
     }
 
     if (loading) return <div className="p-12 flex justify-center text-gray-500">Loading builder...</div>
@@ -451,7 +640,7 @@ export function CatalogBuilderPage() {
         <div className={cn("flex flex-col h-[calc(100vh-80px)] overflow-hidden -mx-4 -mt-6", printMode && "mx-0 mt-0 h-auto overflow-visible")}>
 
             {/* Top Toolbar */}
-            {!printMode && (
+            {!printMode && !buyerMode && (
             <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white shadow-sm z-10 w-full h-16 shrink-0">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="sm" onClick={() => navigate('/catalogs')} className="-ml-2 text-gray-500 hover:text-black">
@@ -471,16 +660,37 @@ export function CatalogBuilderPage() {
                         <button className="p-1.5 px-3 bg-white shadow-sm rounded-md text-content-primary text-xs font-semibold flex items-center transition-all"><Monitor size={14} className="mr-1.5 text-brand" /> Desktop</button>
                         <button className="p-1.5 px-3 text-content-tertiary hover:text-content-primary text-xs font-medium flex items-center transition-colors"><Smartphone size={14} className="mr-1.5" /> Mobile</button>
                     </div>
-                    <Button variant="outline" className="border-border-subtle shadow-sm bg-white hover:bg-app-hover" onClick={handleGeneratePdf}><Download className="mr-2 h-4 w-4" /> Export PDF</Button>
-                    <Button className="shadow-md bg-white text-content-primary border border-border-subtle hover:bg-gray-50" onClick={handleSaveDraft}><Save className="mr-2 h-4 w-4" /> Save Draft</Button>
+                    <Button variant="outline" className="border-border-subtle shadow-sm bg-white hover:bg-app-hover text-black" onClick={handleGeneratePdf}><Download className="mr-2 h-4 w-4" /> Export PDF</Button>
+                    <Button variant="outline" className="shadow-md bg-white text-black border border-border-subtle hover:bg-gray-50" onClick={handleSaveDraft}><Save className="mr-2 h-4 w-4" /> Save Draft</Button>
                     <Button className="shadow-md bg-brand text-white hover:bg-brand-dark" onClick={handlePublish}><Sparkles className="mr-2 h-4 w-4" /> Publish</Button>
+                </div>
+            </div>
+            )}
+            
+            {!printMode && buyerMode && (
+            <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white shadow-sm z-10 w-full h-16 shrink-0">
+                <div className="flex items-center gap-4">
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/buyer/catalogs')} className="-ml-2 text-gray-500 hover:text-black">
+                        <ArrowLeft size={18} className="mr-1" /> Back
+                    </Button>
+                    <div className="h-5 w-px bg-gray-200"></div>
+                    <div>
+                        <h2 className="font-semibold text-[15px] leading-tight text-content-primary">{catalog?.name || 'Catalog'}</h2>
+                        <p className="text-[11px] text-content-tertiary font-semibold tracking-wider uppercase flex items-center gap-2 mt-0.5">
+                            {catalog?.type?.replace('-', ' ')}
+                        </p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3">
+                    <Button variant="outline" className="border-border-subtle shadow-sm bg-white hover:bg-app-hover text-black" onClick={handleGeneratePdf}><Download className="mr-2 h-4 w-4" /> Download PDF</Button>
+                    <Button className="shadow-md bg-brand text-white hover:bg-brand-dark" onClick={() => navigate(`/buyer/request-quote?catalogId=${id}`)}>Request Quote</Button>
                 </div>
             </div>
             )}
 
             <div className="flex flex-1 overflow-hidden h-full">
                 {/* Left Sidebar - Blocks Arsenal */}
-                {!printMode && (
+                {!printMode && !buyerMode && (
                 <div className="w-72 bg-gray-50/80 border-r border-border-subtle overflow-y-auto p-5 flex flex-col gap-8 h-full z-10 shadow-[4px_0_24px_rgba(0,0,0,0.02)] backdrop-blur-xl shrink-0">
                     <div>
                         <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-4">Content Blocks</h4>
@@ -547,13 +757,13 @@ export function CatalogBuilderPage() {
                 {/* Builder Canvas Area */}
                 <div className={cn("flex-1 bg-[#F5F5F7] overflow-y-auto py-12 flex justify-center pb-40", printMode && "bg-white p-0 overflow-visible block pb-0") } onClick={() => setSelectedSectionId(null)}>
                     <div
-                        id={printMode ? "catalog-print-root" : undefined}
+                        id={printMode ? "catalog-print-root" : "catalog-print-root"}
                         className={cn(
                             printMode
                                 ? "w-[850px] bg-white shadow-none flex flex-col relative mx-auto"
                                 : "w-full max-w-[850px] bg-white shadow-xl min-h-[1056px] flex flex-col relative"
                         )}
-                        onClick={e => e.stopPropagation()}
+                        onClick={e => { if(!buyerMode) { e.stopPropagation() } }}
                         style={printMode ? { width: 'calc(8.27in - 1in)' } : undefined}
                     >
 
@@ -599,14 +809,14 @@ export function CatalogBuilderPage() {
                                     <div className={cn("w-full flex flex-col justify-center relative z-10 h-auto", printMode ? "px-10 py-12" : "px-12 py-16")}>
                                         {section.type === 'hero' && (
                                             <div
-                                                className={cn("w-full bg-gray-50 flex flex-col items-center justify-center overflow-hidden rounded-xl relative group", printMode ? "py-20" : "py-32")}
-                                                onClick={() => openUpload(section.id, 'image')}
+                                                className={cn("w-full bg-gray-50 flex flex-col items-center justify-center overflow-hidden rounded-xl relative group bg-cover bg-center", printMode ? "py-20" : "py-32")}
+                                                onClick={() => !buyerMode && openUpload(section.id, 'image')}
+                                                style={{ backgroundImage: section.data?.image ? `url("${section.data.image}")` : undefined }}
                                             >
                                                 {section.data?.image ? (
                                                     <>
-                                                        <img src={section.data.image} alt="Hero" className="absolute inset-0 w-full h-full object-cover" />
                                                         <div className="absolute inset-0 bg-black/10 pointer-events-none" />
-                                                        {!printMode && (
+                                                        {!printMode && !buyerMode && (
                                                             <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                 <div className="text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-1 shadow">
                                                                     Replace image
@@ -617,7 +827,7 @@ export function CatalogBuilderPage() {
                                                 ) : (
                                                     <>
                                                         <ImageIcon className="h-16 w-16 text-gray-300 mb-4 opacity-70 z-10" />
-                                                        {!printMode && (
+                                                        {!printMode && !buyerMode && (
                                                             <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                 <div className="text-[11px] font-bold bg-white border border-border-subtle rounded px-2 py-1 shadow">
                                                                     Upload image
@@ -626,10 +836,25 @@ export function CatalogBuilderPage() {
                                                         )}
                                                     </>
                                                 )}
-                                                <h1 className="text-5xl font-serif text-gray-900 tracking-tight font-bold z-10 text-center px-4" style={{ color: themeColor }}>{section.data?.title || 'Cover Hero'}</h1>
-                                                {section.data?.subtitle && <h2 className="text-xl text-gray-600 mt-4 z-10 font-medium tracking-widest uppercase text-center">{section.data.subtitle}</h2>}
+                                                <h1 
+                                                    className="text-5xl font-serif text-gray-900 tracking-tight font-bold z-10 text-center px-4 outline-none focus:ring-2 focus:ring-brand/50 rounded" 
+                                                    style={{ color: themeColor }}
+                                                    contentEditable={!printMode && !buyerMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'title', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.title || 'Cover Hero'}
+                                                </h1>
+                                                <h2 
+                                                    className="text-xl text-gray-600 mt-4 z-10 font-medium tracking-widest uppercase text-center outline-none focus:ring-2 focus:ring-brand/50 rounded px-2"
+                                                    contentEditable={!printMode && !buyerMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'subtitle', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.subtitle || 'Subtitle'}
+                                                </h2>
                                                 <div className="absolute inset-0 pointer-events-none border-[8px] opacity-10" style={{ borderColor: themeColor }}></div>
-                                                {!printMode && section.data?.image && (
+                                                {!printMode && !buyerMode && section.data?.image && (
                                                     <button
                                                         className="absolute top-3 right-3 text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-1 shadow"
                                                         onClick={(e) => { e.stopPropagation(); removeImage(section.id, 'image') }}
@@ -643,12 +868,29 @@ export function CatalogBuilderPage() {
                                         {/* In print mode, if previous was hero we already merged brand intro with hero; skip duplicate */}
                                         {!(printMode && prevType === 'hero') && section.type === 'brand_intro' && (
                                             <div className="text-center max-w-2xl mx-auto py-12">
-                                                {section.data?.logo ? (
-                                                    <img src={section.data.logo} alt="Brand Logo" className="h-16 mx-auto mb-8" />
-                                                ) : (
-                                                    <div className="h-16 w-16 text-white font-serif font-bold text-2xl flex items-center justify-center rounded-full mx-auto mb-8 transition-colors" style={{ backgroundColor: themeColor }}>BR</div>
-                                                )}
-                                                <h3 className="text-2xl font-serif text-gray-800 mb-6 leading-snug">{section.data?.content}</h3>
+                                                <div 
+                                                    className={cn("mx-auto mb-8 relative group inline-block", !printMode && "cursor-pointer")}
+                                                    onClick={() => !printMode && openUpload(section.id, 'logo')}
+                                                >
+                                                    {section.data?.logo ? (
+                                                        <img src={section.data.logo} alt="Brand Logo" className="h-16" />
+                                                    ) : (
+                                                        <div className="h-16 w-16 text-white font-serif font-bold text-2xl flex items-center justify-center rounded-full transition-colors" style={{ backgroundColor: themeColor }}>BR</div>
+                                                    )}
+                                                    {!printMode && (
+                                                        <div className="absolute inset-0 bg-black/10 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                                                            <div className="text-[9px] font-bold bg-white text-black px-1.5 py-0.5 rounded shadow-sm">Upload</div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <h3 
+                                                    className="text-2xl font-serif text-gray-800 mb-6 leading-snug outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.content || 'Brand Headline'}
+                                                </h3>
                                                 <p className="text-sm text-gray-500 leading-relaxed font-medium">We design luxury apparel with a focus on sustainable sourcing, zero-waste patterns, and modern silhouettes. Every thread connects to our philosophy of enduring style.</p>
                                                 <div className="h-0.5 w-16 mx-auto mt-8 transition-colors" style={{ backgroundColor: themeColor }}></div>
                                             </div>
@@ -656,12 +898,22 @@ export function CatalogBuilderPage() {
                                         {/* If merging hero + brand intro for print, render brand intro directly below hero here */}
                                         {mergeHeroWithBrand && (
                                             <div className="text-center max-w-2xl mx-auto py-10">
-                                                {sections[idx + 1]?.data?.logo ? (
-                                                    <img src={sections[idx + 1].data.logo} alt="Brand Logo" className="h-16 mx-auto mb-8" />
-                                                ) : (
-                                                    <div className="h-16 w-16 text-white font-serif font-bold text-2xl flex items-center justify-center rounded-full mx-auto mb-8 transition-colors" style={{ backgroundColor: themeColor }}>BR</div>
-                                                )}
-                                                <h3 className="text-2xl font-serif text-gray-800 mb-6 leading-snug">{sections[idx + 1]?.data?.content}</h3>
+                                                <div 
+                                                    className={cn("mx-auto mb-8 relative group inline-block", !printMode && "cursor-pointer")}
+                                                    onClick={() => !printMode && openUpload(sections[idx + 1].id, 'logo')}
+                                                >
+                                                    {sections[idx + 1]?.data?.logo ? (
+                                                        <img src={sections[idx + 1].data.logo} alt="Brand Logo" className="h-16" />
+                                                    ) : (
+                                                        <div className="h-16 w-16 text-white font-serif font-bold text-2xl flex items-center justify-center rounded-full transition-colors" style={{ backgroundColor: themeColor }}>BR</div>
+                                                    )}
+                                                    {!printMode && (
+                                                        <div className="absolute inset-0 bg-black/10 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                                                            <div className="text-[9px] font-bold bg-white text-black px-1.5 py-0.5 rounded shadow-sm">Upload</div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <h3 className="text-2xl font-serif text-gray-800 mb-6 leading-snug">{sections[idx + 1]?.data?.content || 'Brand Headline'}</h3>
                                                 <p className="text-sm text-gray-500 leading-relaxed font-medium">We design luxury apparel with a focus on sustainable sourcing, zero-waste patterns, and modern silhouettes. Every thread connects to our philosophy of enduring style.</p>
                                                 <div className="h-0.5 w-16 mx-auto mt-8 transition-colors" style={{ backgroundColor: themeColor }}></div>
                                             </div>
@@ -669,66 +921,148 @@ export function CatalogBuilderPage() {
                                         {section.type === 'collection_intro' && (
                                             <div className="text-left w-full py-10 px-4">
                                                 <div className="h-1 w-12 mb-4 rounded-full transition-colors" style={{ backgroundColor: themeColor }}></div>
-                                                <h2 className="text-3xl font-bold text-content-primary mb-4 tracking-tight">Introducing The Collection</h2>
-                                                <p className="text-[15px] text-content-secondary max-w-3xl leading-relaxed border-l-4 pl-4 transition-colors" style={{ borderColor: themeColor }}>{section.data?.content}</p>
+                                                <h2 
+                                                    className="text-3xl font-bold text-content-primary mb-4 tracking-tight outline-none focus:ring-2 focus:ring-brand/50 rounded p-1 inline-block"
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'title', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.title || 'Introducing The Collection'}
+                                                </h2>
+                                                <p 
+                                                    className="text-[15px] text-content-secondary max-w-3xl leading-relaxed border-l-4 pl-4 transition-colors outline-none focus:ring-2 focus:ring-brand/50 rounded p-1" 
+                                                    style={{ borderColor: themeColor }}
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.content || 'Collection Description'}
+                                                </p>
                                             </div>
                                         )}
                                         {section.type === 'product_grid' && (
                                             <div className="w-full py-4">
                                                 <div className="flex items-center justify-between mb-6 pb-3 border-b border-border-subtle">
-                                                    <h3 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
+                                                    <h3 
+                                                        className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-3 outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
+                                                        contentEditable={!printMode}
+                                                        suppressContentEditableWarning
+                                                        onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    >
                                                         <div className="w-2 h-6 rounded-full transition-colors" style={{ backgroundColor: themeColor }}></div>
-                                                        {section.data?.content}
+                                                        {section.data?.content || 'Products Overview'}
                                                     </h3>
                                                     {section.data?.collectionName && <div className="text-[11px] font-bold px-2.5 py-1 rounded inline-flex items-center uppercase tracking-wider transition-colors border shadow-sm" style={{ color: themeColor, backgroundColor: `${themeColor}10`, borderColor: `${themeColor}30` }}><Layers size={14} className="mr-1.5" /> Mapped to: {section.data.collectionName}</div>}
                                                 </div>
                                                 <div className="rounded-2xl border border-border-subtle bg-white shadow-md p-6">
-                                                    <div className="grid grid-cols-3 gap-8">
-                                                        {(printMode ? (products || []).filter((p) => !!section.data?.[`image_${p.id}`]) : (products || []).slice(0, 9)).map((p) => {
-                                                            const img = section.data?.[`image_${p.id}`]
-                                                            return (
-                                                                printMode ? (
-                                                                    <div
-                                                                        key={p.id}
-                                                                        className="group aspect-[4/5] rounded-2xl border bg-white flex items-center justify-center relative shadow-sm"
-                                                                        style={{ borderColor: `${themeColor}20` }}
-                                                                    >
-                                                                        {img ? (
-                                                                            <img src={img} alt={p.name} className="absolute inset-0 w-full h-full object-cover rounded-2xl" />
+                                                    <div className="flex flex-col gap-8">
+                                                        {(() => {
+                                                            const items = section.data?.items || [{id: 'p1'}, {id: 'p2'}, {id: 'p3'}]
+                                                            const visibleItems = printMode ? items.filter(it => !!it.image) : items
+                                                            
+                                                            const rows = []
+                                                            for (let i = 0; i < visibleItems.length; i += 3) {
+                                                                rows.push(visibleItems.slice(i, i + 3))
+                                                            }
+
+                                                            return rows.map((row, rowIdx) => (
+                                                                <div key={`row-${rowIdx}`} className="grid grid-cols-3 gap-8" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                                                                    {row.map((item, colIdx) => {
+                                                                        const itemIdx = rowIdx * 3 + colIdx
+                                                                        const img = item.image
+                                                                        return (
+                                                                            <div key={item.id} className="flex flex-col">
+                                                                        {printMode ? (
+                                                                            <div
+                                                                                className="group aspect-[4/5] rounded-2xl border bg-white flex items-center justify-center relative shadow-sm overflow-hidden"
+                                                                                style={{ borderColor: `${themeColor}20` }}
+                                                                            >
+                                                                                {img ? (
+                                                                                    <img src={img} className="absolute inset-0 w-full h-full object-cover" />
+                                                                                ) : (
+                                                                                    <Shirt className="text-gray-300" size={36} />
+                                                                                )}
+                                                                            </div>
                                                                         ) : (
-                                                                            <Shirt className="text-gray-300" size={36} />
+                                                                            <button
+                                                                                onClick={() => openUpload(section.id, null, true, itemIdx)}
+                                                                                className={cn(
+                                                                                    "group aspect-[4/5] rounded-2xl border bg-white flex items-center justify-center relative shadow-sm hover:shadow-md active:scale-[0.99] transition-all focus:outline-none overflow-hidden",
+                                                                                    "border-border-subtle"
+                                                                                )}
+                                                                                style={{ borderColor: `${themeColor}20` }}
+                                                                            >
+                                                                                {img ? (
+                                                                                    <>
+                                                                                        <img src={img} className="absolute inset-0 w-full h-full object-cover" />
+                                                                                        <div className="absolute bottom-2 right-2 text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-0.5 shadow opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                            Replace image
+                                                                                        </div>
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <>
+                                                                                        <Shirt className="text-gray-300" size={36} />
+                                                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 pointer-events-none transition-colors" />
+                                                                                        <div className="absolute bottom-2 right-2 text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-0.5 shadow opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                            Upload image
+                                                                                        </div>
+                                                                                    </>
+                                                                                )}
+                                                                                
+                                                                                <div 
+                                                                                    className="absolute top-2 right-2 text-[11px] font-bold bg-red-50 text-red-600 border border-red-200 rounded p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-red-100 hover:scale-105"
+                                                                                    onClick={(e) => { e.stopPropagation(); removeProductFromGrid(section.id, itemIdx, item.id) }}
+                                                                                    title="Remove product"
+                                                                                >
+                                                                                    <X size={14} />
+                                                                                </div>
+                                                                            </button>
                                                                         )}
+                                                                        
+                                                                        <div className="mt-3 flex flex-col gap-1 px-1">
+                                                                            {printMode ? (
+                                                                                <>
+                                                                                    {item.name && <div className="text-sm font-bold text-content-primary">{item.name}</div>}
+                                                                                    {item.price && <div className="text-xs font-semibold" style={{ color: themeColor }}>{item.price}</div>}
+                                                                                </>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <input 
+                                                                                        type="text" 
+                                                                                        placeholder="Product Name" 
+                                                                                        value={item.name || ''} 
+                                                                                        onChange={(e) => updateGridItem(section.id, itemIdx, 'name', e.target.value)}
+                                                                                        className="text-sm font-bold text-content-primary outline-none focus:ring-1 focus:ring-brand/50 rounded px-1 -mx-1 bg-transparent border-none placeholder:text-gray-300"
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                    />
+                                                                                    <input 
+                                                                                        type="text" 
+                                                                                        placeholder="$0.00" 
+                                                                                        value={item.price || ''} 
+                                                                                        onChange={(e) => updateGridItem(section.id, itemIdx, 'price', e.target.value)}
+                                                                                        className="text-xs font-semibold outline-none focus:ring-1 focus:ring-brand/50 rounded px-1 -mx-1 bg-transparent border-none placeholder:text-gray-300 transition-colors"
+                                                                                        style={{ color: themeColor }}
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                    />
+                                                                                </>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
-                                                                ) : (
-                                                                    <button
-                                                                        key={p.id}
-                                                                        onClick={() => openUpload(section.id, `image_${p.id}`)}
-                                                                        className={cn(
-                                                                            "group aspect-[4/5] rounded-2xl border bg-white flex items-center justify-center relative shadow-sm hover:shadow-md active:scale-[0.99] transition-all focus:outline-none",
-                                                                            "border-border-subtle"
-                                                                        )}
-                                                                        style={{ borderColor: `${themeColor}20` }}
-                                                                    >
-                                                                        {img ? (
-                                                                            <>
-                                                                                <img src={img} alt={p.name} className="absolute inset-0 w-full h-full object-cover rounded-2xl" />
-                                                                                <div className="absolute bottom-2 right-2 text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-0.5 shadow opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                                    Replace image
-                                                                                </div>
-                                                                            </>
-                                                                        ) : (
-                                                                            <>
-                                                                                <Shirt className="text-gray-300" size={36} />
-                                                                                <div className="absolute inset-0 rounded-2xl bg-black/0 group-hover:bg-black/5 pointer-events-none transition-colors" />
-                                                                                <div className="absolute right-2 top-2 text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-0.5 shadow opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                                    Upload image
-                                                                                </div>
-                                                                            </>
-                                                                        )}
-                                                                    </button>
                                                                 )
-                                                            )
-                                                        })}
+                                                            })}
+                                                        </div>
+                                                    ))
+                                                })()}
+                                                        
+                                                        {!printMode && (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); addGridItem(section.id) }}
+                                                                className="aspect-[4/5] rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center text-gray-400 hover:border-brand hover:text-brand hover:bg-brand-soft/20 transition-all focus:outline-none"
+                                                            >
+                                                                <Plus className="h-8 w-8 mb-2" />
+                                                                <span className="text-xs font-bold">Add Product</span>
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -774,10 +1108,40 @@ export function CatalogBuilderPage() {
                                                     )}
                                                 </div>
                                                 <div className="w-full md:w-1/2 py-4">
-                                                    <p className="text-[10px] font-bold uppercase tracking-widest mb-3 px-2 py-0.5 inline-block rounded-full border transition-colors" style={{ color: themeColor, borderColor: `${themeColor}40` }}>{section.data?.content}</p>
-                                                    <h3 className="text-3xl font-serif font-bold text-content-primary mb-3">Oversized Washed Hoodie</h3>
-                                                    <p className="text-[15px] font-semibold mb-6 transition-colors" style={{ color: themeColor }}>$85.00 MSRP • $42.50 WHL</p>
-                                                    <p className="text-[13px] text-content-secondary leading-relaxed mb-6">Featuring a vintage enzyme wash, heavyweight 400gsm cotton fleece, and dropped shoulders for an effortlessly modern drape. Pre-shrunk and garment-dyed.</p>
+                                                    <p 
+                                                        className="text-[10px] font-bold uppercase tracking-widest mb-3 px-2 py-0.5 inline-block rounded-full border transition-colors outline-none focus:ring-2 focus:ring-brand/50" 
+                                                        style={{ color: themeColor, borderColor: `${themeColor}40` }}
+                                                        contentEditable={!printMode}
+                                                        suppressContentEditableWarning
+                                                        onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    >
+                                                        {section.data?.content || 'Featured Item'}
+                                                    </p>
+                                                    <h3 
+                                                        className="text-3xl font-serif font-bold text-content-primary mb-3 outline-none focus:ring-2 focus:ring-brand/50 rounded"
+                                                        contentEditable={!printMode}
+                                                        suppressContentEditableWarning
+                                                        onBlur={(e) => updateSectionData(section.id, 'title', e.currentTarget.textContent)}
+                                                    >
+                                                        {section.data?.title || 'Oversized Washed Hoodie'}
+                                                    </h3>
+                                                    <p 
+                                                        className="text-[15px] font-semibold mb-6 transition-colors outline-none focus:ring-2 focus:ring-brand/50 rounded" 
+                                                        style={{ color: themeColor }}
+                                                        contentEditable={!printMode}
+                                                        suppressContentEditableWarning
+                                                        onBlur={(e) => updateSectionData(section.id, 'price', e.currentTarget.textContent)}
+                                                    >
+                                                        {section.data?.price || '$85.00 MSRP • $42.50 WHL'}
+                                                    </p>
+                                                    <p 
+                                                        className="text-[13px] text-content-secondary leading-relaxed mb-6 outline-none focus:ring-2 focus:ring-brand/50 rounded"
+                                                        contentEditable={!printMode}
+                                                        suppressContentEditableWarning
+                                                        onBlur={(e) => updateSectionData(section.id, 'description', e.currentTarget.textContent)}
+                                                    >
+                                                        {section.data?.description || 'Featuring a vintage enzyme wash, heavyweight 400gsm cotton fleece, and dropped shoulders for an effortlessly modern drape. Pre-shrunk and garment-dyed.'}
+                                                    </p>
                                                     <div className="flex items-center gap-3">
                                                         <Button style={{ backgroundColor: themeColor }} className="text-white border-transparent hover:opacity-90">Order Sample</Button>
                                                     </div>
@@ -787,9 +1151,33 @@ export function CatalogBuilderPage() {
                                         {section.type === 'ai_tryon' && (
                                             <div className="flex flex-col lg:flex-row items-center justify-between gap-12 py-10">
                                                 <div className="w-full lg:w-1/2">
-                                                    <h3 className="text-3xl font-bold text-gray-900 mb-4 tracking-tight"><span style={{ color: themeColor }}>AI Engine: </span>{section.data?.content}</h3>
-                                                    <p className="text-gray-500 mb-8 font-medium leading-relaxed">Instantly visualize our products on diverse models using MerchFlow AI's native Try-On pipeline. Click below to toggle variations.</p>
-                                                    <Button variant="outline" className="shadow-sm transition-colors" style={{ color: themeColor, borderColor: themeColor }}><Shirt className="mr-2 h-4 w-4" /> Switch Model Size & Ethnicity</Button>
+                                                    <h3 
+                                                        className="text-3xl font-bold text-gray-900 mb-4 tracking-tight outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
+                                                        contentEditable={!printMode}
+                                                        suppressContentEditableWarning
+                                                        onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    >
+                                                        <span style={{ color: themeColor }} contentEditable={false}>AI Engine: </span>
+                                                        {section.data?.content || 'Virtual Try-On Experience'}
+                                                    </h3>
+                                                    <p 
+                                                        className="text-gray-500 mb-8 font-medium leading-relaxed outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
+                                                        contentEditable={!printMode}
+                                                        suppressContentEditableWarning
+                                                        onBlur={(e) => updateSectionData(section.id, 'description', e.currentTarget.textContent)}
+                                                    >
+                                                        {section.data?.description || "Instantly visualize our products on diverse models using MerchFlow AI's native Try-On pipeline. Click below to toggle variations."}
+                                                    </p>
+                                                    <Button variant="outline" className="shadow-sm transition-colors" style={{ color: themeColor, borderColor: themeColor }}>
+                                                        <Shirt className="mr-2 h-4 w-4" /> 
+                                                        <span 
+                                                            contentEditable={!printMode} suppressContentEditableWarning
+                                                            onBlur={(e) => updateSectionData(section.id, 'buttonText', e.currentTarget.textContent)}
+                                                            className="outline-none"
+                                                        >
+                                                            {section.data?.buttonText || 'Switch Model Size & Ethnicity'}
+                                                        </span>
+                                                    </Button>
                                                 </div>
                                                 <div className="w-full lg:w-1/2 aspect-[4/5] bg-gray-50 rounded-2xl border-2 border-dashed flex items-center justify-center flex-col shadow-inner transition-colors" style={{ borderColor: `${themeColor}40`, color: themeColor }}>
                                                     <Sparkles className="h-10 w-10 mb-3 opacity-70" />
@@ -799,7 +1187,14 @@ export function CatalogBuilderPage() {
                                         )}
                                         {section.type === 'pricing' && (
                                             <div className={cn("w-full text-center", printMode ? "py-4" : "py-6")} style={printMode ? { breakInside: 'avoid', pageBreakInside: 'avoid' } : undefined}>
-                                                <h3 className={cn("text-2xl font-bold text-gray-900 tracking-tight", printMode ? "mb-6" : "mb-8")}>{section.data?.content}</h3>
+                                                <h3 
+                                                    className={cn("text-2xl font-bold text-gray-900 tracking-tight outline-none focus:ring-2 focus:ring-brand/50 rounded p-1 inline-block", printMode ? "mb-6" : "mb-8")}
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.content || 'Wholesale Pricing'}
+                                                </h3>
                                                 <div className="border border-border-strong rounded-xl overflow-hidden text-[13px]">
                                                     <div className="grid grid-cols-4 font-bold p-3 border-b border-border-strong tracking-wider uppercase text-[11px] transition-colors" style={{ backgroundColor: `${themeColor}10`, color: themeColor }}>
                                                         <div className="text-left px-2">SKU</div>
@@ -824,9 +1219,14 @@ export function CatalogBuilderPage() {
                                         )}
                                         {section.type === 'specs' && (
                                             <div className="w-full text-center py-6">
-                                                <h3 className="text-2xl font-bold text-gray-900 mb-8 tracking-tight flex justify-center items-center gap-2">
-                                                    <Table className="h-5 w-5" style={{ color: themeColor }} />
-                                                    {section.data?.content}
+                                                <h3 
+                                                    className="text-2xl font-bold text-gray-900 mb-8 tracking-tight flex justify-center items-center gap-2 outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                >
+                                                    <Table className="h-5 w-5" style={{ color: themeColor }} contentEditable={false} />
+                                                    {section.data?.content || 'Technical Specifications'}
                                                 </h3>
                                                 <div className="bg-app-body p-6 rounded-xl border-l-4 border-y border-r border-border-subtle text-[13px] text-left max-w-3xl mx-auto space-y-3 font-medium text-content-secondary transition-colors" style={{ borderLeftColor: themeColor }}>
                                                     <div className="flex justify-between border-b border-border-subtle pb-2"><span>Material Composition</span><span className="text-content-primary font-bold">100% Organic Cotton</span></div>
@@ -838,15 +1238,64 @@ export function CatalogBuilderPage() {
                                         )}
                                         {section.type === 'contact' && (
                                             <div className="w-full text-center py-16 rounded-xl text-white transition-colors" style={{ backgroundColor: themeColor }}>
-                                                <h3 className="text-3xl font-bold mb-4">{section.data?.content}</h3>
-                                                <p className="text-white/80 mb-8 max-w-lg mx-auto leading-relaxed">We look forward to partnering with your retail locations. Reach out for custom quotes, seasonal order minimums, and shipping timelines.</p>
+                                                <h3 
+                                                    className="text-3xl font-bold mb-4 outline-none focus:ring-2 focus:ring-white/50 rounded px-2 inline-block"
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.content || 'Get in Touch'}
+                                                </h3>
+                                                <p 
+                                                    className="text-white/80 mb-8 max-w-lg mx-auto leading-relaxed outline-none focus:ring-2 focus:ring-white/50 rounded p-1"
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'description', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.description || 'We look forward to partnering with your retail locations. Reach out for custom quotes, seasonal order minimums, and shipping timelines.'}
+                                                </p>
 
                                                 <div className="flex items-center justify-center gap-6 mb-8 font-mono text-sm opacity-90">
-                                                    <div className="flex items-center gap-2"><Mail size={16} /> <span>{section.data?.email}</span></div>
-                                                    <div className="flex items-center gap-2"><Phone size={16} /> <span>{section.data?.phone}</span></div>
+                                                    <div className="flex items-center gap-2">
+                                                        <Mail size={16} /> 
+                                                        <span 
+                                                            contentEditable={!printMode} suppressContentEditableWarning
+                                                            onBlur={(e) => updateSectionData(section.id, 'email', e.currentTarget.textContent)}
+                                                            className="outline-none focus:ring-2 focus:ring-white/50 rounded px-1"
+                                                        >
+                                                            {section.data?.email || 'hello@brand.com'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <Phone size={16} /> 
+                                                        <span 
+                                                            contentEditable={!printMode} suppressContentEditableWarning
+                                                            onBlur={(e) => updateSectionData(section.id, 'phone', e.currentTarget.textContent)}
+                                                            className="outline-none focus:ring-2 focus:ring-white/50 rounded px-1"
+                                                        >
+                                                            {section.data?.phone || '+1 (555) 000-0000'}
+                                                        </span>
+                                                    </div>
                                                 </div>
 
-                                                <Button className="bg-white hover:bg-gray-100 font-bold px-8 shadow-sm transition-colors" style={{ color: themeColor }}>Submit Wholesale Inquiry</Button>
+                                                <div 
+                                                    className="bg-white font-bold px-8 py-2.5 rounded-md shadow-sm inline-block text-center" 
+                                                >
+                                                    {printMode ? (
+                                                        <span style={{ color: '#000000', display: 'block' }}>
+                                                            {section.data?.buttonText || 'Submit'}
+                                                        </span>
+                                                    ) : (
+                                                        <span 
+                                                            contentEditable={true} suppressContentEditableWarning
+                                                            onBlur={(e) => updateSectionData(section.id, 'buttonText', e.currentTarget.textContent)}
+                                                            className="outline-none block"
+                                                            style={{ color: '#000000' }}
+                                                        >
+                                                            {section.data?.buttonText || 'Submit'}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                         {section.type === 'footer' && (
@@ -855,7 +1304,14 @@ export function CatalogBuilderPage() {
                                                 <div className="flex justify-center gap-4 mb-4">
                                                     <span className="font-bold text-sm tracking-widest uppercase transition-colors" style={{ color: themeColor }}>Brand</span>
                                                 </div>
-                                                <p className="text-xs font-semibold">{section.data?.content}</p>
+                                                <p 
+                                                    className="text-xs font-semibold outline-none focus:ring-2 focus:ring-brand/50 rounded px-1 inline-block"
+                                                    contentEditable={!printMode}
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                >
+                                                    {section.data?.content || 'Brand Name'}
+                                                </p>
                                             </div>
                                         )}
                                     </div>
