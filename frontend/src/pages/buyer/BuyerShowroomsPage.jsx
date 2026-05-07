@@ -27,7 +27,7 @@ export function BuyerShowroomsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {showrooms.map(s => (
-            <Link key={s.id} to={`/buyer/showrooms/${s.id}`}
+            <Link key={s.id} to={`/s/${s.slug}`}
               className="group rounded-2xl overflow-hidden border border-border-subtle bg-white hover:shadow-lg transition-shadow">
               <div className="h-40 overflow-hidden bg-gray-100">
                 {s.coverImage
