@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PageHeader } from '../../components/PageHeader'
@@ -43,11 +43,12 @@ function qualityWarnings({ garmentUrl, personUrl }) {
 
 export function AITryOnPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const qc = useQueryClient()
   const [step, setStep] = useState(1)
 
-  const [selectedProductId, setSelectedProductId] = useState(null)
-  const [garmentUrl, setGarmentUrl] = useState('')
+  const [selectedProductId, setSelectedProductId] = useState(location.state?.productId || null)
+  const [garmentUrl, setGarmentUrl] = useState(location.state?.garmentUrl || '')
   const [personUrl, setPersonUrl] = useState(MODEL_PRESETS[0].url)
   const [consent, setConsent] = useState(true)
   const [quality, setQuality] = useState('hd')
@@ -242,8 +243,8 @@ export function AITryOnPage() {
               </div>
 
               {garmentUrl ? (
-                <div className="overflow-hidden rounded-[var(--radius)] border border-[rgb(var(--border))]">
-                  <img src={garmentUrl} alt="Garment preview" className="h-72 w-full object-cover" />
+                <div className="overflow-hidden rounded-[var(--radius)] border border-[rgb(var(--border))] bg-[rgb(var(--bg-muted))]">
+                  <img src={garmentUrl} alt="Garment preview" className="h-48 w-full object-contain" />
                 </div>
               ) : null}
             </CardContent>
@@ -325,13 +326,13 @@ export function AITryOnPage() {
                   <button
                     key={m.id}
                     onClick={() => setPersonUrl(m.url)}
-                    className={`overflow-hidden rounded-[var(--radius)] border text-left transition ${personUrl === m.url
+                    className={`overflow-hidden rounded-[var(--radius)] border text-left transition bg-[rgb(var(--bg-muted))] ${personUrl === m.url
                       ? 'border-[rgba(var(--accent),0.35)] ring-2 ring-[rgba(var(--accent),0.18)]'
                       : 'border-[rgb(var(--border))] hover:bg-[rgb(var(--bg-muted))]'
                       }`}
                   >
-                    <img src={m.url} alt={m.name} className="h-40 w-full object-cover" />
-                    <div className="p-3">
+                    <img src={m.url} alt={m.name} className="h-48 w-full object-contain" />
+                    <div className="p-3 bg-[rgb(var(--surface))]">
                       <div className="text-sm font-semibold">{m.name}</div>
                       <div className="mt-1 text-xs text-muted">{m.note}</div>
                     </div>
@@ -499,11 +500,11 @@ export function AITryOnPage() {
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2">
-                    <div className="overflow-hidden rounded-[var(--radius)] border border-[rgb(var(--border))]">
-                      <img src={garmentUrl} alt="Garment" className="h-52 w-full object-cover" />
+                    <div className="overflow-hidden rounded-[var(--radius)] border border-[rgb(var(--border))] bg-[rgb(var(--bg-muted))]">
+                      <img src={garmentUrl} alt="Garment" className="h-48 w-full object-contain" />
                     </div>
-                    <div className="overflow-hidden rounded-[var(--radius)] border border-[rgb(var(--border))]">
-                      <img src={personUrl} alt="Person" className="h-52 w-full object-cover" />
+                    <div className="overflow-hidden rounded-[var(--radius)] border border-[rgb(var(--border))] bg-[rgb(var(--bg-muted))]">
+                      <img src={personUrl} alt="Person" className="h-48 w-full object-contain" />
                     </div>
                   </div>
                 </div>
@@ -592,13 +593,13 @@ export function AITryOnPage() {
                       </div>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
-                      <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden">
-                        <div className="bg-[rgb(var(--bg-muted))] px-3 py-1.5 text-xs font-semibold text-muted">Person / Model</div>
-                        <img src={personUrl} alt="Person" className="w-full aspect-[3/4] object-cover" />
+                      <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden bg-[rgb(var(--bg-muted))]">
+                        <div className="bg-[rgb(var(--bg-muted))] px-3 py-1.5 text-xs font-semibold text-muted border-b border-[rgb(var(--border))]">Person / Model</div>
+                        <img src={personUrl} alt="Person" className="w-full h-64 object-contain" />
                       </div>
-                      <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden">
-                        <div className="bg-[rgb(var(--bg-muted))] px-3 py-1.5 text-xs font-semibold text-muted">Garment Selected</div>
-                        <img src={garmentUrl} alt="Garment" className="w-full aspect-[3/4] object-cover" />
+                      <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden bg-[rgb(var(--bg-muted))]">
+                        <div className="bg-[rgb(var(--bg-muted))] px-3 py-1.5 text-xs font-semibold text-muted border-b border-[rgb(var(--border))]">Garment Selected</div>
+                        <img src={garmentUrl} alt="Garment" className="w-full h-64 object-contain" />
                       </div>
                     </div>
                   </>
@@ -618,9 +619,9 @@ export function AITryOnPage() {
                   <CardContent>
                     <div className="grid gap-3 md:grid-cols-2">
                       {outputs.map((o) => (
-                        <div key={o.id} className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden">
-                          <img src={o.url} alt="Output" className="h-48 w-full object-cover" />
-                          <div className="p-3 flex flex-wrap gap-2 items-center justify-between">
+                        <div key={o.id} className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden bg-[rgb(var(--bg-muted))]">
+                          <img src={o.url} alt="Output" className="h-64 w-full object-contain" />
+                          <div className="p-3 flex flex-wrap gap-2 items-center justify-between bg-[rgb(var(--surface))] border-t border-[rgb(var(--border))]">
                             <div className="flex gap-2">
                               <Button
                                 size="sm"

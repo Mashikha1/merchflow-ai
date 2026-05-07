@@ -7,12 +7,12 @@ export function CompareSlider({ beforeUrl, afterUrl }) {
   if (!beforeUrl || !afterUrl) return null
 
   return (
-    <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden bg-[rgb(var(--surface))] shadow-card">
-      <div className="relative aspect-[16/10] w-full">
+    <div className="rounded-[var(--radius)] border border-[rgb(var(--border))] overflow-hidden bg-[rgb(var(--surface))] shadow-card max-w-sm mx-auto">
+      <div className="relative aspect-[3/4] w-full bg-[rgb(var(--bg-muted))]">
         <img
           src={beforeUrl}
           alt="Before"
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-contain"
         />
         <div
           className="absolute inset-0 overflow-hidden"
@@ -21,7 +21,7 @@ export function CompareSlider({ beforeUrl, afterUrl }) {
           <img
             src={afterUrl}
             alt="After"
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-contain"
           />
         </div>
         <div
