@@ -11,6 +11,7 @@ import { RightDrawer } from '../components/RightDrawer'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { catalogService } from '../services/catalogService'
 import { productService } from '../services/productService'
+import { api } from '../lib/api'
 
 const STEPS = [
   { id: 1, label: 'Basic Info' },
@@ -444,10 +445,6 @@ export function ProductNewPage() {
                     <Input value={formData.name} onChange={e => updateForm('name', e.target.value)} placeholder="e.g. Core Cotton Heavyweight Tee" className="text-[15px] h-11" />
                   </div>
                   <div>
-                    <label className="text-sm font-semibold mb-1.5 block text-content-primary">SKU Code</label>
-                    <Input value={formData.sku} onChange={e => updateForm('sku', e.target.value)} placeholder="e.g. TS-CORE-100" />
-                  </div>
-                  <div>
                     <label className="text-sm font-semibold mb-1.5 block text-content-primary">Status</label>
                     <select value={formData.status} onChange={e => updateForm('status', e.target.value)} className="w-full h-10 rounded-xl border border-border-subtle bg-white px-3 text-sm focus:ring-2 focus:ring-brand outline-none">
                       <option value="Draft">Draft</option>
@@ -468,13 +465,6 @@ export function ProductNewPage() {
                   <div>
                     <label className="text-sm font-semibold mb-1.5 block text-content-primary">Brand / Manufacturer</label>
                     <Input value={formData.brand} onChange={e => updateForm('brand', e.target.value)} placeholder="e.g. In-house" />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-semibold mb-1.5 block text-content-primary">URL Slug</label>
-                    <div className="flex rounded-xl overflow-hidden border border-border-subtle focus-within:ring-2 focus-within:ring-brand">
-                      <span className="bg-app-card-muted px-3 flex items-center text-sm text-content-secondary border-r border-border-subtle">merchflow.com/p/</span>
-                      <input value={formData.slug} onChange={e => updateForm('slug', e.target.value)} className="flex-1 h-10 px-3 text-sm outline-none bg-white" placeholder="core-cotton-heavyweight-tee" />
-                    </div>
                   </div>
                   <div className="md:col-span-2">
                     <label className="text-sm font-semibold mb-1.5 block text-content-primary">Short Description</label>
@@ -506,11 +496,25 @@ export function ProductNewPage() {
                     accept={{ 'image/*': [] }}
                     maxFiles={10}
                     helper="Drag & drop product images, or click to browse. (Max 10MB per file)"
-                    onFiles={(files) => {
+                    onFiles={async (files) => {
                       if (files?.length) {
-                        const newImages = Array.from(files).map((f, i) => ({ id: `img_${Date.now()}_${i}`, url: URL.createObjectURL(f), name: f.name }))
-                        setFormData(prev => ({ ...prev, images: [...prev.images, ...newImages] }))
-                        toast.success(`${files.length} images uploaded`)
+                        try {
+                          const uploadData = new FormData()
+                          Array.from(files).forEach(f => uploadData.append('files', f))
+                          
+                          const createdMedia = await api.post('/media/upload', uploadData)
+                          
+                          const newImages = createdMedia.map((m, i) => ({ 
+                            id: `img_${Date.now()}_${i}`, 
+                            url: m.url, 
+                            name: m.filename 
+                          }))
+                          
+                          setFormData(prev => ({ ...prev, images: [...prev.images, ...newImages] }))
+                          toast.success(`${files.length} images uploaded`)
+                        } catch (err) {
+                          toast.error('Failed to upload images')
+                        }
                       }
                     }}
                   />
@@ -691,13 +695,6 @@ export function ProductNewPage() {
                         <Input type="number" value={formData.wholesalePrice} onChange={e => updateForm('wholesalePrice', e.target.value)} className="pl-7" placeholder="0.00" />
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-semibold mb-1.5 block text-content-primary">Cost per Unit (Internal)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary">$</span>
-                        <Input type="number" placeholder="0.00" className="pl-7" />
-                      </div>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -712,14 +709,6 @@ export function ProductNewPage() {
                     <div>
                       <label className="text-sm font-semibold mb-1.5 block text-content-primary">Initial Stock (On Hand)</label>
                       <Input type="number" value={formData.stock} onChange={e => updateForm('stock', e.target.value)} placeholder="e.g. 500" />
-                    </div>
-                    <div>
-                      <label className="text-sm font-semibold mb-1.5 block text-content-primary">Primary Location</label>
-                      <select value={formData.warehouse} onChange={e => updateForm('warehouse', e.target.value)} className="w-full h-10 rounded-xl border border-border-subtle bg-white px-3 text-sm focus:ring-2 focus:ring-brand outline-none">
-                        <option value="Main Hub">Main Fulfillment Hub</option>
-                        <option value="West Coast">West Coast Warehouse</option>
-                        <option value="Drop Ship">Drop Ship Vendor</option>
-                      </select>
                     </div>
                     <div>
                       <label className="text-sm font-semibold mb-1.5 block text-content-primary">Low Stock Alert Threshold</label>
@@ -745,32 +734,12 @@ export function ProductNewPage() {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="text-sm font-semibold mb-1.5 block text-content-primary">Material / Composition</label>
-                    <Input value={formData.material} onChange={e => updateForm('material', e.target.value)} placeholder="e.g. 100% Organic Cotton" />
-                  </div>
-                  <div>
                     <label className="text-sm font-semibold mb-1.5 block text-content-primary">Fabric Weight (GSM)</label>
                     <Input value={formData.gsm} onChange={e => updateForm('gsm', e.target.value)} placeholder="e.g. 240 GSM" />
                   </div>
                   <div>
-                    <label className="text-sm font-semibold mb-1.5 block text-content-primary">Fit / Silhouette</label>
-                    <Input value={formData.fit} onChange={e => updateForm('fit', e.target.value)} placeholder="e.g. Oversized Drop Shoulder" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold mb-1.5 block text-content-primary">Country of Origin</label>
-                    <Input value={formData.origin} onChange={e => updateForm('origin', e.target.value)} placeholder="e.g. Portugal" />
-                  </div>
-                  <div className="md:col-span-2">
                     <label className="text-sm font-semibold mb-1.5 block text-content-primary">Care Instructions</label>
                     <Input value={formData.care} onChange={e => updateForm('care', e.target.value)} placeholder="e.g. Machine wash cold, tumble dry low" />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-semibold mb-1.5 block text-content-primary">Internal Notes / Dimensions</label>
-                    <textarea
-                      value={formData.notes} onChange={e => updateForm('notes', e.target.value)}
-                      className="w-full h-24 rounded-xl border border-border-subtle bg-white p-3 text-sm focus:ring-2 focus:ring-brand outline-none resize-y"
-                      placeholder="e.g. Sizing runs slightly large."
-                    />
                   </div>
                 </div>
               </CardContent>

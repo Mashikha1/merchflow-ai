@@ -11,6 +11,7 @@ import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
+import { UploadDropzone } from '../components/UploadDropzone'
 import { useAuthStore } from '../store/authStore'
 import { api } from '../lib/api'
 
@@ -18,11 +19,6 @@ const TABS = [
   { id: 'overview', label: 'Overview', icon: Tag },
   { id: 'media', label: 'Media', icon: ImageIcon },
   { id: 'variants', label: 'Variants', icon: LayoutGrid },
-  { id: 'pricing', label: 'Pricing', icon: DollarSign },
-  { id: 'inventory', label: 'Inventory', icon: Box },
-  { id: 'ai', label: 'AI Assets', icon: Sparkles },
-  { id: 'publishing', label: 'Publishing', icon: Globe },
-  { id: 'activity', label: 'Activity', icon: Clock },
 ]
 
 // ─── Variants Tab ─────────────────────────────────────────────────────────────
@@ -178,8 +174,9 @@ export function ProductDetailPage() {
   })
 
   const updateM = useMutation({
-    mutationFn: (body) => api.patch(`/products/${id}`, body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success('Product saved') }
+    mutationFn: (body) => api.put(`/products/${id}`, body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success('Product saved') },
+    onError: (err) => { toast.error('Failed to save product: ' + err.message) }
   })
 
   const [form, setForm] = useState({})
@@ -339,12 +336,33 @@ export function ProductDetailPage() {
               <Card className="p-6">
                 <h3 className="text-lg font-semibold border-b pb-4 mb-6">Product Media</h3>
                 {!isBuyer && (
-                  <div className="border-2 border-dashed border-gray-200 rounded-xl p-12 text-center hover:bg-gray-50 transition-colors cursor-pointer mb-6">
-                    <div className="flex flex-col items-center justify-center text-gray-500">
-                      <ImageIcon className="h-10 w-10 mb-3 text-gray-400" />
-                      <p className="text-sm font-medium text-gray-900">Click or drag images to upload</p>
-                      <p className="text-xs mt-1">Supports JPG, PNG up to 10MB</p>
-                    </div>
+                  <div className="mb-6">
+                    <UploadDropzone
+                      accept={{ 'image/*': [] }}
+                      maxFiles={10}
+                      helper="Drag & drop product images, or click to browse. (Max 10MB per file)"
+                      onFiles={async (files) => {
+                        if (files?.length) {
+                          try {
+                            const uploadData = new FormData()
+                            Array.from(files).forEach(f => uploadData.append('files', f))
+                            
+                            // 1. Upload to actual backend media route
+                            const createdMedia = await api.post('/media/upload', uploadData)
+                            
+                            // 2. Get the real remote URLs from the response
+                            const newUrls = createdMedia.map(m => m.url)
+                            
+                            // 3. Add to our local form state
+                            const currentImages = form.images ?? (data.images || [])
+                            setForm(f => ({ ...f, images: [...currentImages, ...newUrls] }))
+                            toast.success(`${files.length} images uploaded to media library`)
+                          } catch (err) {
+                            toast.error('Failed to upload images: ' + err.message)
+                          }
+                        }
+                      }}
+                    />
                   </div>
                 )}
                 {(data.images || []).length > 0 && (
@@ -353,6 +371,17 @@ export function ProductDetailPage() {
                       <div key={i} className="aspect-[3/4] bg-gray-100 rounded-lg relative overflow-hidden group">
                         {i === 0 && <div className="absolute top-2 left-2 bg-black text-white text-[10px] uppercase px-2 py-0.5 rounded font-bold z-10">Primary</div>}
                         <img src={url} alt={`Product ${i + 1}`} className="w-full h-full object-cover" />
+                        {!isBuyer && (
+                          <button
+                            className="absolute top-2 right-2 h-7 w-7 bg-white rounded-full flex items-center justify-center text-red-500 opacity-0 group-hover:opacity-100 shadow-sm border border-gray-200 transition-opacity"
+                            onClick={() => {
+                              const currentImages = form.images ?? (data.images || [])
+                              setForm(f => ({ ...f, images: currentImages.filter((_, idx) => idx !== i) }))
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -365,15 +394,6 @@ export function ProductDetailPage() {
               isNew
                 ? <div className="p-12 text-center text-gray-500">Save the product first to manage variants.</div>
                 : <VariantsTab productId={id} />
-            )}
-
-            {/* Other tabs */}
-            {activeTab !== 'overview' && activeTab !== 'media' && activeTab !== 'variants' && (
-              <Card className="p-12 text-center flex flex-col items-center justify-center border-dashed">
-                <div className="h-12 w-12 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-400"><LayoutGrid /></div>
-                <h3 className="text-lg font-medium text-gray-900 mb-1">{TABS.find(t => t.id === activeTab)?.label}</h3>
-                <p className="text-sm text-gray-500 max-w-sm">This tab is managed from the main product overview. Save changes above to persist updates.</p>
-              </Card>
             )}
           </div>
         </div>
