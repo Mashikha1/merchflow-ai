@@ -58,9 +58,11 @@ router.post('/quote-request', async (req, res, next) => {
         }
 
         let showroomId = null
+        let createdById = null
         if (showroomSlug) {
             const sr = await prisma.showroom.findUnique({ where: { slug: showroomSlug } })
             showroomId = sr?.id || null
+            createdById = sr?.createdById || null
         }
 
         const quote = await prisma.quote.create({
@@ -72,6 +74,7 @@ router.post('/quote-request', async (req, res, next) => {
                 buyerCountry: buyer.country || null,
                 source: 'Showroom',
                 showroomId,
+                createdById,
                 currency,
                 status: 'DRAFT',
                 expiryDate: new Date(Date.now() + 14 * 86400000),
@@ -90,6 +93,53 @@ router.post('/quote-request', async (req, res, next) => {
             include: { items: true }
         })
         res.status(201).json({ quoteId: quote.id, success: true })
+    } catch (err) { next(err) }
+})
+
+// POST /api/public/checkout — process direct e-commerce order from public showroom
+router.post('/checkout', async (req, res, next) => {
+    try {
+        const { buyer, items = [], showroomSlug, currency = 'USD' } = req.body
+        if (!buyer?.name || !buyer?.email) {
+            return res.status(400).json({ error: 'buyer.name and buyer.email required' })
+        }
+
+        let showroomId = null
+        let createdById = null
+        if (showroomSlug) {
+            const sr = await prisma.showroom.findUnique({ where: { slug: showroomSlug } })
+            showroomId = sr?.id || null
+            createdById = sr?.createdById || null
+        }
+
+        const order = await prisma.quote.create({
+            data: {
+                buyerName: buyer.name,
+                buyerCompany: buyer.company || '',
+                buyerEmail: buyer.email,
+                buyerPhone: buyer.phone || null,
+                buyerCountry: buyer.country || null,
+                buyerAddress: buyer.address || null,
+                source: 'E-commerce Checkout',
+                showroomId,
+                createdById,
+                currency,
+                status: 'CONVERTED_TO_ORDER',
+                items: {
+                    create: items.map(i => ({
+                        sku: i.sku || 'N/A',
+                        name: i.name,
+                        qty: i.qty || 1,
+                        unitPrice: i.price || i.unitPrice || 0,
+                        discountPct: 0,
+                        productId: i.productId || i.id || null
+                    }))
+                },
+                history: { create: { by: 'Buyer', action: 'Placed direct order via showroom cart' } }
+            },
+            include: { items: true }
+        })
+        res.status(201).json({ orderId: order.id, success: true })
     } catch (err) { next(err) }
 })
 
