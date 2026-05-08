@@ -85,8 +85,19 @@ export function LoginPage() {
 
   const form = useForm({
     resolver: zodResolver(schema),
-    defaultValues: { email: 'admin@merchflow.ai', password: 'password' },
+    defaultValues: { email: '', password: '' },
   })
+
+  // Prefill credentials based on loginMode
+  useEffect(() => {
+    if (loginMode === 'seller') {
+      form.setValue('email', 'snehalrathod15234@gmail.com')
+      form.setValue('password', '12345678')
+    } else {
+      form.setValue('email', 'admin@merchflow.com')
+      form.setValue('password', 'Admin@123')
+    }
+  }, [loginMode, form])
 
   const onSubmit = async (values) => {
     try {
