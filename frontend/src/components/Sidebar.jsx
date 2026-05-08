@@ -123,16 +123,30 @@ export function Sidebar() {
       {/* Brand / Logo */}
       <div className="p-5 pb-6">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-md bg-brand flex items-center justify-center text-white shrink-0 shadow-sm font-bold text-lg">
-            M
-          </div>
+          {/* Company logo or default M icon */}
+          {user?.brandLogo ? (
+            <img
+              src={user.brandLogo}
+              alt={user.brandName || 'Company Logo'}
+              className="h-8 w-8 rounded-md object-contain bg-white border border-border-subtle shrink-0 shadow-sm"
+              onError={e => { e.target.style.display = 'none' }}
+            />
+          ) : (
+            <div className="h-8 w-8 rounded-md bg-brand flex items-center justify-center text-white shrink-0 shadow-sm font-bold text-lg">
+              {user?.brandName ? user.brandName[0].toUpperCase() : 'M'}
+            </div>
+          )}
           {!collapsed ? (
             <div className="leading-tight overflow-hidden">
               <div className="text-[15px] font-semibold tracking-tight text-content-primary truncate">
-                MerchFlow AI
+                {user?.brandName || 'MerchFlow AI'}
               </div>
-              {user?.role && (
-                <div className="text-[11px] text-content-tertiary mt-0.5 truncate capitalize">{user.role.toLowerCase()}</div>
+              {user?.brandName ? (
+                <div className="text-[10px] text-content-tertiary mt-0.5 truncate">Powered by MerchFlow AI</div>
+              ) : (
+                user?.role && (
+                  <div className="text-[11px] text-content-tertiary mt-0.5 truncate capitalize">{user.role.toLowerCase()}</div>
+                )
               )}
             </div>
           ) : null}

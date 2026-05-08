@@ -164,7 +164,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
     try {
         const user = await prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { id: true, email: true, name: true, role: true, title: true, phone: true, avatarUrl: true, brandName: true, brandLogo: true, brandColor: true, brandEmail: true, createdAt: true }
+            select: { id: true, email: true, name: true, role: true, title: true, phone: true, avatarUrl: true, brandName: true, brandLogo: true, brandColor: true, brandEmail: true, companyAddress: true, createdAt: true }
         })
         if (!user) return res.status(404).json({ error: 'User not found' })
         res.json(user)
@@ -174,7 +174,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
 // PATCH /api/auth/me — update profile
 router.patch('/me', requireAuth, async (req, res, next) => {
     try {
-        const { name, title, phone, avatarUrl, brandName, brandLogo, brandColor, brandEmail } = req.body
+        const { name, title, phone, avatarUrl, brandName, brandLogo, brandColor, brandEmail, companyAddress } = req.body
         const user = await prisma.user.update({
             where: { id: req.user.id },
             data: {
@@ -186,8 +186,9 @@ router.patch('/me', requireAuth, async (req, res, next) => {
                 ...(brandLogo !== undefined && { brandLogo }),
                 ...(brandColor !== undefined && { brandColor }),
                 ...(brandEmail !== undefined && { brandEmail }),
+                ...(companyAddress !== undefined && { companyAddress }),
             },
-            select: { id: true, email: true, name: true, role: true, title: true, phone: true, avatarUrl: true, brandName: true, brandLogo: true, brandColor: true, brandEmail: true }
+            select: { id: true, email: true, name: true, role: true, title: true, phone: true, avatarUrl: true, brandName: true, brandLogo: true, brandColor: true, brandEmail: true, companyAddress: true }
         })
         res.json(user)
     } catch (err) { next(err) }

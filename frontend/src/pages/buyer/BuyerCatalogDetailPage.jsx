@@ -49,7 +49,6 @@ export function BuyerCatalogDetailPage() {
         <div className="flex gap-2 ml-auto">
           <Button variant="secondary" onClick={() => navigate('/buyer/catalogs')}>Back</Button>
           <Button variant="outline" onClick={viewPdf}>📄 View PDF</Button>
-          <Button variant="secondary" onClick={exportPdf}>⬇ Export PDF</Button>
           <Button onClick={() => navigate(`/buyer/request-quote?catalogId=${id}`)}>Request Quote</Button>
         </div>
       </div>

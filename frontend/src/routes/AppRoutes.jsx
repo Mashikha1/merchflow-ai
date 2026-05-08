@@ -8,7 +8,7 @@ import { SignupPage } from '../pages/auth/SignupPage'
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage'
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage'
 import { InviteAcceptPage } from '../pages/auth/InviteAcceptPage'
-import { OnboardingPage } from '../pages/OnboardingPage'
+
 
 import { DashboardPage } from '../pages/DashboardPage'
 import { ProductsPage } from '../pages/ProductsPage'
@@ -52,6 +52,7 @@ import { OrdersPage } from '../pages/OrdersPage'
 import { SettingsProfilePage } from '../pages/settings/SettingsProfilePage'
 import { SettingsTeamPage } from '../pages/settings/SettingsTeamPage'
 import { SettingsBrandPage } from '../pages/settings/SettingsBrandPage'
+import { SettingsCompanyPage } from '../pages/settings/SettingsCompanyPage'
 import { SettingsIntegrationsPage } from '../pages/settings/SettingsIntegrationsPage'
 import { SettingsNotificationsPage } from '../pages/settings/SettingsNotificationsPage'
 import { SettingsAIPage } from '../pages/settings/SettingsAIPage'
@@ -103,18 +104,6 @@ export function AppRoutes() {
         <Route path="/invite/accept" element={<InviteAcceptPage />} />
       </Route>
 
-      <Route
-        path="/onboarding"
-        element={
-          <RequireAuth>
-            <div className="min-h-screen bg-app-body px-6 py-10 lg:px-20">
-              <div className="mx-auto max-w-5xl">
-                <OnboardingPage />
-              </div>
-            </div>
-          </RequireAuth>
-        }
-      />
 
       <Route
         element={
@@ -164,6 +153,7 @@ export function AppRoutes() {
 
 
         <Route path="/settings/profile" element={<SettingsProfilePage />} />
+        <Route path="/settings/company" element={<SettingsCompanyPage />} />
         <Route path="/settings/team" element={<SettingsTeamPage />} />
         <Route path="/settings/brand" element={<SettingsBrandPage />} />
         <Route path="/settings/integrations" element={<SettingsIntegrationsPage />} />

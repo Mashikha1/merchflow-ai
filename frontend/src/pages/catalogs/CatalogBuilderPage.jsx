@@ -37,6 +37,7 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
     const [products, setProducts] = useState([])
     const [selectedProducts, setSelectedProducts] = useState([])
     const [isExporting, setExporting] = useState(false)
+    const [autofillingSectionId, setAutofillingSectionId] = useState(null)
 
     // Interaction State
     const [selectedSectionId, setSelectedSectionId] = useState(null)
@@ -616,6 +617,53 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
         setSections(prev => prev.map((s) => s.id === sectionId ? ({ ...s, data: { ...s.data, [key]: value } }) : s))
     }
 
+    const handleAiAutofill = async (section) => {
+        const imageUrl = section.data?.image || null
+        const productName = section.data?.title || null
+        const productPrice = section.data?.price || null
+        const productSku = section.data?.sku || null
+
+        if (!imageUrl && !productName) {
+            toast.error('Add an image or product name first so Gemini has something to analyze.')
+            return
+        }
+
+        setAutofillingSectionId(section.id)
+        const toastId = 'ai-autofill'
+        toast.loading('Gemini is analyzing the product…', { id: toastId })
+
+        try {
+            const result = await api.post('/ai/catalog-autofill', {
+                imageUrl,
+                productName,
+                productPrice,
+                productSku
+            })
+
+            setSections(prev => prev.map(s => {
+                if (s.id !== section.id) return s
+                return {
+                    ...s,
+                    data: {
+                        ...s.data,
+                        content: result.label || s.data.content,
+                        title: result.title || s.data.title,
+                        price: result.price || s.data.price,
+                        description: result.description || s.data.description,
+                        ...(result.sku ? { sku: result.sku } : {})
+                    }
+                }
+            }))
+
+            toast.success('AI autofill complete!', { id: toastId, description: 'All fields have been filled in. Review and edit as needed.' })
+        } catch (err) {
+            console.error('[AI Autofill]', err)
+            toast.error('AI autofill failed', { id: toastId, description: err.message || 'Check backend logs' })
+        } finally {
+            setAutofillingSectionId(null)
+        }
+    }
+
     const updateGridItem = (sectionId, itemIdx, key, value) => {
         setSections(prev => prev.map((s) => {
             if (s.id !== sectionId) return s
@@ -764,7 +812,10 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                 : "w-full max-w-[850px] bg-white shadow-xl min-h-[1056px] flex flex-col relative"
                         )}
                         onClick={e => { if(!buyerMode) { e.stopPropagation() } }}
-                        style={printMode ? { width: 'calc(8.27in - 1in)' } : undefined}
+                        style={{
+                            ...(printMode ? { width: 'calc(8.27in - 1in)' } : {}),
+                            ...(buyerMode ? { userSelect: 'none', WebkitUserSelect: 'none' } : {})
+                        }}
                     >
 
                         {sections.length === 0 && (
@@ -791,14 +842,14 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                 <div
                                     key={section.id}
                                     ref={el => sectionRefs.current[section.id] = el}
-                                    onClick={() => handleSelectSection(section.id)}
+                                    onClick={() => !buyerMode && handleSelectSection(section.id)}
                                     className={cn(
-                                        "group relative w-full flex flex-col border-y-2 border-transparent transition-all overflow-visible cursor-pointer",
-                                        isSelected ? "z-20" : "hover:border-border-strong z-10"
+                                        "group relative w-full flex flex-col border-y-2 border-transparent transition-all overflow-visible",
+                                        !buyerMode && (isSelected ? "z-20" : "hover:border-border-strong z-10 cursor-pointer")
                                     )}
                                     style={{
-                                        borderColor: isSelected ? themeColor : undefined,
-                                        backgroundColor: isSelected ? `${themeColor}05` : 'transparent',
+                                        borderColor: (!buyerMode && isSelected) ? themeColor : undefined,
+                                        backgroundColor: (!buyerMode && isSelected) ? `${themeColor}05` : 'transparent',
                                         breakInside: printMode ? 'avoid' : undefined,
                                         pageBreakInside: printMode ? 'avoid' : undefined,
                                         ...printBreak
@@ -869,15 +920,15 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                         {!(printMode && prevType === 'hero') && section.type === 'brand_intro' && (
                                             <div className="text-center max-w-2xl mx-auto py-12">
                                                 <div 
-                                                    className={cn("mx-auto mb-8 relative group inline-block", !printMode && "cursor-pointer")}
-                                                    onClick={() => !printMode && openUpload(section.id, 'logo')}
+                                                    className={cn("mx-auto mb-8 relative group inline-block", !printMode && !buyerMode && "cursor-pointer")}
+                                                    onClick={() => !printMode && !buyerMode && openUpload(section.id, 'logo')}
                                                 >
                                                     {section.data?.logo ? (
                                                         <img src={section.data.logo} alt="Brand Logo" className="h-16" />
                                                     ) : (
                                                         <div className="h-16 w-16 text-white font-serif font-bold text-2xl flex items-center justify-center rounded-full transition-colors" style={{ backgroundColor: themeColor }}>BR</div>
                                                     )}
-                                                    {!printMode && (
+                                                    {!printMode && !buyerMode && (
                                                         <div className="absolute inset-0 bg-black/10 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
                                                             <div className="text-[9px] font-bold bg-white text-black px-1.5 py-0.5 rounded shadow-sm">Upload</div>
                                                         </div>
@@ -885,9 +936,9 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                 </div>
                                                 <h3 
                                                     className="text-2xl font-serif text-gray-800 mb-6 leading-snug outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                 >
                                                     {section.data?.content || 'Brand Headline'}
                                                 </h3>
@@ -899,15 +950,15 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                         {mergeHeroWithBrand && (
                                             <div className="text-center max-w-2xl mx-auto py-10">
                                                 <div 
-                                                    className={cn("mx-auto mb-8 relative group inline-block", !printMode && "cursor-pointer")}
-                                                    onClick={() => !printMode && openUpload(sections[idx + 1].id, 'logo')}
+                                                    className={cn("mx-auto mb-8 relative group inline-block", !printMode && !buyerMode && "cursor-pointer")}
+                                                    onClick={() => !printMode && !buyerMode && openUpload(sections[idx + 1].id, 'logo')}
                                                 >
                                                     {sections[idx + 1]?.data?.logo ? (
                                                         <img src={sections[idx + 1].data.logo} alt="Brand Logo" className="h-16" />
                                                     ) : (
                                                         <div className="h-16 w-16 text-white font-serif font-bold text-2xl flex items-center justify-center rounded-full transition-colors" style={{ backgroundColor: themeColor }}>BR</div>
                                                     )}
-                                                    {!printMode && (
+                                                    {!printMode && !buyerMode && (
                                                         <div className="absolute inset-0 bg-black/10 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
                                                             <div className="text-[9px] font-bold bg-white text-black px-1.5 py-0.5 rounded shadow-sm">Upload</div>
                                                         </div>
@@ -923,18 +974,18 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                 <div className="h-1 w-12 mb-4 rounded-full transition-colors" style={{ backgroundColor: themeColor }}></div>
                                                 <h2 
                                                     className="text-3xl font-bold text-content-primary mb-4 tracking-tight outline-none focus:ring-2 focus:ring-brand/50 rounded p-1 inline-block"
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'title', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'title', e.currentTarget.textContent)}
                                                 >
                                                     {section.data?.title || 'Introducing The Collection'}
                                                 </h2>
                                                 <p 
                                                     className="text-[15px] text-content-secondary max-w-3xl leading-relaxed border-l-4 pl-4 transition-colors outline-none focus:ring-2 focus:ring-brand/50 rounded p-1" 
                                                     style={{ borderColor: themeColor }}
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                 >
                                                     {section.data?.content || 'Collection Description'}
                                                 </p>
@@ -945,9 +996,9 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                 <div className="flex items-center justify-between mb-6 pb-3 border-b border-border-subtle">
                                                     <h3 
                                                         className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-3 outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
-                                                        contentEditable={!printMode}
+                                                        contentEditable={!printMode && !buyerMode}
                                                         suppressContentEditableWarning
-                                                        onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                        onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                     >
                                                         <div className="w-2 h-6 rounded-full transition-colors" style={{ backgroundColor: themeColor }}></div>
                                                         {section.data?.content || 'Products Overview'}
@@ -959,20 +1010,37 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                         {(() => {
                                                             const items = section.data?.items || [{id: 'p1'}, {id: 'p2'}, {id: 'p3'}]
                                                             const visibleItems = printMode ? items.filter(it => !!it.image) : items
-                                                            
+                                                            // Append virtual add-slot in seller edit mode
+                                                            const allSlots = (!printMode && !buyerMode)
+                                                                ? [...visibleItems, { id: '__add__', __isAddSlot: true }]
+                                                                : visibleItems
+
                                                             const rows = []
-                                                            for (let i = 0; i < visibleItems.length; i += 3) {
-                                                                rows.push(visibleItems.slice(i, i + 3))
+                                                            for (let i = 0; i < allSlots.length; i += 3) {
+                                                                rows.push(allSlots.slice(i, i + 3))
                                                             }
 
                                                             return rows.map((row, rowIdx) => (
                                                                 <div key={`row-${rowIdx}`} className="grid grid-cols-3 gap-8" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
                                                                     {row.map((item, colIdx) => {
+                                                                        if (item.__isAddSlot) {
+                                                                            return (
+                                                                                <div key="__add__" className="flex flex-col">
+                                                                                    <button
+                                                                                        onClick={(e) => { e.stopPropagation(); addGridItem(section.id) }}
+                                                                                        className="aspect-[4/5] rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center text-gray-400 hover:border-brand hover:text-brand hover:bg-brand-soft/20 transition-all focus:outline-none"
+                                                                                    >
+                                                                                        <Plus className="h-6 w-6 mb-1.5" />
+                                                                                        <span className="text-xs font-bold">Add Product</span>
+                                                                                    </button>
+                                                                                </div>
+                                                                            )
+                                                                        }
                                                                         const itemIdx = rowIdx * 3 + colIdx
                                                                         const img = item.image
                                                                         return (
                                                                             <div key={item.id} className="flex flex-col">
-                                                                        {printMode ? (
+                                                                        {(printMode || buyerMode) ? (
                                                                             <div
                                                                                 className="group aspect-[4/5] rounded-2xl border bg-white flex items-center justify-center relative shadow-sm overflow-hidden"
                                                                                 style={{ borderColor: `${themeColor}20` }}
@@ -1020,7 +1088,7 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                                         )}
                                                                         
                                                                         <div className="mt-3 flex flex-col gap-1 px-1">
-                                                                            {printMode ? (
+                                                                            {(printMode || buyerMode) ? (
                                                                                 <>
                                                                                     {item.name && <div className="text-sm font-bold text-content-primary">{item.name}</div>}
                                                                                     {item.price && <div className="text-xs font-semibold" style={{ color: themeColor }}>{item.price}</div>}
@@ -1054,15 +1122,7 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                     ))
                                                 })()}
                                                         
-                                                        {!printMode && (
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); addGridItem(section.id) }}
-                                                                className="aspect-[4/5] rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center text-gray-400 hover:border-brand hover:text-brand hover:bg-brand-soft/20 transition-all focus:outline-none"
-                                                            >
-                                                                <Plus className="h-8 w-8 mb-2" />
-                                                                <span className="text-xs font-bold">Add Product</span>
-                                                            </button>
-                                                        )}
+
                                                     </div>
                                                 </div>
                                             </div>
@@ -1070,22 +1130,22 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                         {section.type === 'featured_product' && (
                                             <div className={cn("flex flex-col md:flex-row items-center gap-10", printMode ? "py-8" : "py-6")} style={printMode ? { breakInside: 'avoid', pageBreakInside: 'avoid' } : undefined}>
                                                 <div
-                                                    className={cn("w-full md:w-1/2 bg-gray-50 rounded-xl border flex items-center justify-center relative overflow-hidden group hover:shadow-lg transition-shadow cursor-pointer", printMode ? "aspect-[3/4]" : "aspect-[4/5]")}
+                                                    className={cn("w-full md:w-1/2 bg-gray-50 rounded-xl border flex items-center justify-center relative overflow-hidden group transition-shadow", !buyerMode && "hover:shadow-lg cursor-pointer", printMode ? "aspect-[3/4]" : "aspect-[4/5]")}
                                                     style={{ borderColor: `${themeColor}30` }}
-                                                    onClick={() => openUpload(section.id, 'image')}
+                                                    onClick={() => !buyerMode && openUpload(section.id, 'image')}
                                                 >
                                                     {section.data?.image ? (
                                                         <>
                                                             <img src={section.data.image} alt="Featured" className="absolute inset-0 w-full h-full object-cover" />
                                                             <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/15 to-transparent"></div>
-                                                            {!printMode && (
+                                                            {!printMode && !buyerMode && (
                                                                 <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                     <div className="text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-0.5 shadow">
                                                                         Replace image
                                                                     </div>
                                                                 </div>
                                                             )}
-                                                            {!printMode && (
+                                                            {!printMode && !buyerMode && (
                                                                 <button
                                                                     className="absolute top-2 right-2 text-[11px] font-bold bg-white/90 border border-border-subtle rounded px-2 py-0.5 shadow"
                                                                     onClick={(e) => { e.stopPropagation(); removeImage(section.id, 'image') }}
@@ -1097,7 +1157,7 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                     ) : (
                                                         <>
                                                             <ImageIcon className="text-gray-300" size={48} />
-                                                            {!printMode && (
+                                                            {!printMode && !buyerMode && (
                                                                 <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                     <div className="text-[11px] font-bold bg-white border border-border-subtle rounded px-2 py-0.5 shadow">
                                                                         Upload image
@@ -1108,37 +1168,72 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                     )}
                                                 </div>
                                                 <div className="w-full md:w-1/2 py-4">
+                                                    {!printMode && !buyerMode && (
+                                                        <div className="mb-4 flex items-center gap-2">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleAiAutofill(section) }}
+                                                                disabled={autofillingSectionId === section.id}
+                                                                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border transition-all shadow-sm hover:shadow-md active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                                style={{
+                                                                    background: autofillingSectionId === section.id
+                                                                        ? `${themeColor}15`
+                                                                        : `linear-gradient(135deg, ${themeColor}18 0%, ${themeColor}08 100%)`,
+                                                                    color: themeColor,
+                                                                    borderColor: `${themeColor}40`
+                                                                }}
+                                                                title="Use Gemini AI to autofill product details from image and name"
+                                                            >
+                                                                {autofillingSectionId === section.id ? (
+                                                                    <>
+                                                                        <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                                                        </svg>
+                                                                        Analyzing…
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <Sparkles size={11} />
+                                                                        AI Autofill Details
+                                                                    </>
+                                                                )}
+                                                            </button>
+                                                            <span className="text-[10px] text-content-tertiary">
+                                                                {section.data?.image ? 'Uses image + name' : 'Add an image for best results'}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                     <p 
                                                         className="text-[10px] font-bold uppercase tracking-widest mb-3 px-2 py-0.5 inline-block rounded-full border transition-colors outline-none focus:ring-2 focus:ring-brand/50" 
                                                         style={{ color: themeColor, borderColor: `${themeColor}40` }}
-                                                        contentEditable={!printMode}
+                                                        contentEditable={!printMode && !buyerMode}
                                                         suppressContentEditableWarning
-                                                        onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                        onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                     >
                                                         {section.data?.content || 'Featured Item'}
                                                     </p>
                                                     <h3 
                                                         className="text-3xl font-serif font-bold text-content-primary mb-3 outline-none focus:ring-2 focus:ring-brand/50 rounded"
-                                                        contentEditable={!printMode}
+                                                        contentEditable={!printMode && !buyerMode}
                                                         suppressContentEditableWarning
-                                                        onBlur={(e) => updateSectionData(section.id, 'title', e.currentTarget.textContent)}
+                                                        onBlur={(e) => !buyerMode && updateSectionData(section.id, 'title', e.currentTarget.textContent)}
                                                     >
                                                         {section.data?.title || 'Oversized Washed Hoodie'}
                                                     </h3>
                                                     <p 
                                                         className="text-[15px] font-semibold mb-6 transition-colors outline-none focus:ring-2 focus:ring-brand/50 rounded" 
                                                         style={{ color: themeColor }}
-                                                        contentEditable={!printMode}
+                                                        contentEditable={!printMode && !buyerMode}
                                                         suppressContentEditableWarning
-                                                        onBlur={(e) => updateSectionData(section.id, 'price', e.currentTarget.textContent)}
+                                                        onBlur={(e) => !buyerMode && updateSectionData(section.id, 'price', e.currentTarget.textContent)}
                                                     >
                                                         {section.data?.price || '$85.00 MSRP • $42.50 WHL'}
                                                     </p>
                                                     <p 
                                                         className="text-[13px] text-content-secondary leading-relaxed mb-6 outline-none focus:ring-2 focus:ring-brand/50 rounded"
-                                                        contentEditable={!printMode}
+                                                        contentEditable={!printMode && !buyerMode}
                                                         suppressContentEditableWarning
-                                                        onBlur={(e) => updateSectionData(section.id, 'description', e.currentTarget.textContent)}
+                                                        onBlur={(e) => !buyerMode && updateSectionData(section.id, 'description', e.currentTarget.textContent)}
                                                     >
                                                         {section.data?.description || 'Featuring a vintage enzyme wash, heavyweight 400gsm cotton fleece, and dropped shoulders for an effortlessly modern drape. Pre-shrunk and garment-dyed.'}
                                                     </p>
@@ -1153,26 +1248,26 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                 <div className="w-full lg:w-1/2">
                                                     <h3 
                                                         className="text-3xl font-bold text-gray-900 mb-4 tracking-tight outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
-                                                        contentEditable={!printMode}
+                                                        contentEditable={!printMode && !buyerMode}
                                                         suppressContentEditableWarning
-                                                        onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                        onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                     >
                                                         <span style={{ color: themeColor }} contentEditable={false}>AI Engine: </span>
                                                         {section.data?.content || 'Virtual Try-On Experience'}
                                                     </h3>
                                                     <p 
                                                         className="text-gray-500 mb-8 font-medium leading-relaxed outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
-                                                        contentEditable={!printMode}
+                                                        contentEditable={!printMode && !buyerMode}
                                                         suppressContentEditableWarning
-                                                        onBlur={(e) => updateSectionData(section.id, 'description', e.currentTarget.textContent)}
+                                                        onBlur={(e) => !buyerMode && updateSectionData(section.id, 'description', e.currentTarget.textContent)}
                                                     >
                                                         {section.data?.description || "Instantly visualize our products on diverse models using MerchFlow AI's native Try-On pipeline. Click below to toggle variations."}
                                                     </p>
                                                     <Button variant="outline" className="shadow-sm transition-colors" style={{ color: themeColor, borderColor: themeColor }}>
                                                         <Shirt className="mr-2 h-4 w-4" /> 
                                                         <span 
-                                                            contentEditable={!printMode} suppressContentEditableWarning
-                                                            onBlur={(e) => updateSectionData(section.id, 'buttonText', e.currentTarget.textContent)}
+                                                            contentEditable={!printMode && !buyerMode} suppressContentEditableWarning
+                                                            onBlur={(e) => !buyerMode && updateSectionData(section.id, 'buttonText', e.currentTarget.textContent)}
                                                             className="outline-none"
                                                         >
                                                             {section.data?.buttonText || 'Switch Model Size & Ethnicity'}
@@ -1189,9 +1284,9 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                             <div className={cn("w-full text-center", printMode ? "py-4" : "py-6")} style={printMode ? { breakInside: 'avoid', pageBreakInside: 'avoid' } : undefined}>
                                                 <h3 
                                                     className={cn("text-2xl font-bold text-gray-900 tracking-tight outline-none focus:ring-2 focus:ring-brand/50 rounded p-1 inline-block", printMode ? "mb-6" : "mb-8")}
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                 >
                                                     {section.data?.content || 'Wholesale Pricing'}
                                                 </h3>
@@ -1221,9 +1316,9 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                             <div className="w-full text-center py-6">
                                                 <h3 
                                                     className="text-2xl font-bold text-gray-900 mb-8 tracking-tight flex justify-center items-center gap-2 outline-none focus:ring-2 focus:ring-brand/50 rounded p-1"
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                 >
                                                     <Table className="h-5 w-5" style={{ color: themeColor }} contentEditable={false} />
                                                     {section.data?.content || 'Technical Specifications'}
@@ -1240,17 +1335,17 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                             <div className="w-full text-center py-16 rounded-xl text-white transition-colors" style={{ backgroundColor: themeColor }}>
                                                 <h3 
                                                     className="text-3xl font-bold mb-4 outline-none focus:ring-2 focus:ring-white/50 rounded px-2 inline-block"
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                 >
                                                     {section.data?.content || 'Get in Touch'}
                                                 </h3>
                                                 <p 
                                                     className="text-white/80 mb-8 max-w-lg mx-auto leading-relaxed outline-none focus:ring-2 focus:ring-white/50 rounded p-1"
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'description', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'description', e.currentTarget.textContent)}
                                                 >
                                                     {section.data?.description || 'We look forward to partnering with your retail locations. Reach out for custom quotes, seasonal order minimums, and shipping timelines.'}
                                                 </p>
@@ -1259,8 +1354,8 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                     <div className="flex items-center gap-2">
                                                         <Mail size={16} /> 
                                                         <span 
-                                                            contentEditable={!printMode} suppressContentEditableWarning
-                                                            onBlur={(e) => updateSectionData(section.id, 'email', e.currentTarget.textContent)}
+                                                            contentEditable={!printMode && !buyerMode} suppressContentEditableWarning
+                                                            onBlur={(e) => !buyerMode && updateSectionData(section.id, 'email', e.currentTarget.textContent)}
                                                             className="outline-none focus:ring-2 focus:ring-white/50 rounded px-1"
                                                         >
                                                             {section.data?.email || 'hello@brand.com'}
@@ -1269,8 +1364,8 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                     <div className="flex items-center gap-2">
                                                         <Phone size={16} /> 
                                                         <span 
-                                                            contentEditable={!printMode} suppressContentEditableWarning
-                                                            onBlur={(e) => updateSectionData(section.id, 'phone', e.currentTarget.textContent)}
+                                                            contentEditable={!printMode && !buyerMode} suppressContentEditableWarning
+                                                            onBlur={(e) => !buyerMode && updateSectionData(section.id, 'phone', e.currentTarget.textContent)}
                                                             className="outline-none focus:ring-2 focus:ring-white/50 rounded px-1"
                                                         >
                                                             {section.data?.phone || '+1 (555) 000-0000'}
@@ -1281,7 +1376,7 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                 <div 
                                                     className="bg-white font-bold px-8 py-2.5 rounded-md shadow-sm inline-block text-center" 
                                                 >
-                                                    {printMode ? (
+                                                    {(printMode || buyerMode) ? (
                                                         <span style={{ color: '#000000', display: 'block' }}>
                                                             {section.data?.buttonText || 'Submit'}
                                                         </span>
@@ -1306,9 +1401,9 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                                 </div>
                                                 <p 
                                                     className="text-xs font-semibold outline-none focus:ring-2 focus:ring-brand/50 rounded px-1 inline-block"
-                                                    contentEditable={!printMode}
+                                                    contentEditable={!printMode && !buyerMode}
                                                     suppressContentEditableWarning
-                                                    onBlur={(e) => updateSectionData(section.id, 'content', e.currentTarget.textContent)}
+                                                    onBlur={(e) => !buyerMode && updateSectionData(section.id, 'content', e.currentTarget.textContent)}
                                                 >
                                                     {section.data?.content || 'Brand Name'}
                                                 </p>
@@ -1316,7 +1411,8 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                         )}
                                     </div>
 
-                                    {/* Toolbar */}
+                                    {/* Toolbar — seller only, never shown in buyerMode or printMode */}
+                                    {!buyerMode && !printMode && (
                                     <div className={cn(
                                         "absolute right-4 top-4 transition-all bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] rounded-lg border border-border-strong flex z-30 overflow-hidden transform duration-200",
                                         isSelected ? "opacity-100 translate-y-0 scale-100" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-[-10px] scale-95 pointer-events-none group-hover:pointer-events-auto"
@@ -1332,11 +1428,12 @@ export function CatalogBuilderPage({ buyerMode = false, autoExport = false, onEx
                                         <div className="h-8 w-px bg-border-subtle"></div>
                                         <button onClick={(e) => removeSection(e, section.id)} className="h-8 w-8 flex items-center justify-center hover:bg-red-50 text-semantic-error transition-colors shadow-sm" title="Delete Block"><Trash2 size={14} /></button>
                                     </div>
+                                    )}
                                 </div>
                             )
                         })}
 
-                        {!printMode && (
+                        {!printMode && !buyerMode && (
                             <div className="w-full py-10 mx-auto max-w-[calc(100%-6rem)] mb-12 mt-auto bg-white border-2 border-dashed border-border-strong rounded-xl text-content-tertiary font-bold hover:border-brand hover:text-brand hover:bg-brand-soft/20 transition-all flex items-center justify-center cursor-pointer shadow-sm" onClick={() => toast.info('Click a content block on the left sidebar to add it.')}>
                                 <Plus className="mr-2 h-5 w-5" /> Drop New Block Here
                             </div>

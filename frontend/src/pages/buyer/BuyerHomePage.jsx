@@ -11,10 +11,13 @@ export function BuyerHomePage() {
   const catalogsQ = useQuery({ queryKey: ['catalogs'], queryFn: () => api('/catalogs') })
   const showroomsQ = useQuery({ queryKey: ['showrooms'], queryFn: () => api('/showrooms') })
   const wishlistQ = useQuery({ queryKey: ['wishlist'], queryFn: () => api('/wishlist') })
+  const ordersQ = useQuery({ queryKey: ['orders'], queryFn: () => api('/orders') })
 
   const catalogs = (catalogsQ.data || []).filter(c => c.status === 'Published' || c.status === 'Approved').slice(0, 4)
   const showrooms = (showroomsQ.data || []).filter(s => s.status === 'Published').slice(0, 6)
   const wishlistCount = (wishlistQ.data || []).length
+  const myOrdersCount = (ordersQ.data?.orders || []).length
+  const myQuotesCount = (ordersQ.data?.summary?.pendingQuotes || 0)
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12 space-y-10">
@@ -35,10 +38,11 @@ export function BuyerHomePage() {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: 'Active Catalogs', value: catalogs.length, link: '/buyer/catalogs', icon: '📖' },
           { label: 'Open Showrooms', value: showrooms.length, link: '/buyer/showrooms', icon: '🏬' },
+          { label: 'My Orders', value: myOrdersCount, link: '/orders', icon: '📦' },
           { label: 'Wishlist Items', value: wishlistCount, link: '/buyer/wishlist', icon: '♡' },
         ].map(s => (
           <Link key={s.label} to={s.link} className="group p-5 rounded-2xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))] hover:shadow-md transition-shadow flex items-center gap-4">

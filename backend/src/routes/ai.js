@@ -574,4 +574,62 @@ Generate a compelling lookbook narrative as JSON with this exact structure (no m
     } catch (err) { next(err) }
 })
 
+// ─── POST /api/ai/catalog-autofill ────────────────────────────────────────────
+// Given a product image URL and/or product name, return autofilled catalog fields
+// for a Featured Product block: label, title, price hint, and a rich description.
+router.post('/catalog-autofill', async (req, res, next) => {
+    try {
+        const { imageUrl, productName, productPrice, productSku } = req.body
+
+        if (!imageUrl && !productName) {
+            return res.status(400).json({ error: 'At least imageUrl or productName is required' })
+        }
+
+        const priceContext = productPrice ? `Known price: $${productPrice}` : ''
+        const skuContext = productSku ? `SKU: ${productSku}` : ''
+
+        const prompt = `You are a premium fashion brand copywriter creating catalog content for a wholesale lookbook.
+${productName ? `Product name: "${productName}"` : 'Analyze the product image to determine its type and style.'}
+${skuContext}
+${priceContext}
+
+${imageUrl ? 'An image of the product is attached. Use it to understand the garment style, color, material, and occasion.' : ''}
+
+Generate catalog content as JSON with EXACTLY these keys (no markdown, no explanation, valid JSON only):
+{
+  "label": "short category label (e.g. 'Featured Item', 'New Arrival', 'Bestseller', 'Hero Piece') — 2-3 words max",
+  "title": "product display name for catalog — 3-5 words, evocative and brand-forward",
+  "price": "price string (e.g. '$85.00 MSRP • $42.50 WHL') — use provided price if available, else estimate based on product type",
+  "description": "2-3 sentence marketing description — premium, tactile, B2B wholesale tone. Mention fabric feel, construction quality, and versatility.",
+  "sku": "a SKU code if inferrable (e.g. HD-WSH-02) or keep provided SKU"
+}`
+
+        let fields = {}
+        try {
+            const raw = await callGemini(prompt, imageUrl || null)
+            const jsonMatch = raw.match(/\{[\s\S]*\}/)
+            if (jsonMatch) fields = JSON.parse(jsonMatch[0])
+        } catch (parseErr) {
+            console.warn('[CatalogAutofill] Gemini parse error, using fallback:', parseErr.message)
+            const name = productName || 'Premium Piece'
+            fields = {
+                label: 'Featured Item',
+                title: name,
+                price: productPrice ? `$${productPrice} MSRP` : '$85.00 MSRP • $42.50 WHL',
+                description: `${name} — crafted with premium materials and meticulous attention to detail. A versatile staple designed for the modern wardrobe. Pre-shrunk and garment-dyed for lasting quality.`,
+                sku: productSku || `SKU-${Math.floor(Math.random() * 90000 + 10000)}`
+            }
+        }
+
+        // Ensure all fields are present
+        fields.label = fields.label || 'Featured Item'
+        fields.title = fields.title || productName || 'Premium Product'
+        fields.price = fields.price || (productPrice ? `$${productPrice} MSRP` : '$85.00 MSRP • $42.50 WHL')
+        fields.description = fields.description || 'A premium product crafted with quality materials and exceptional attention to detail.'
+        fields.sku = fields.sku || productSku || null
+
+        res.json(fields)
+    } catch (err) { next(err) }
+})
+
 export default router

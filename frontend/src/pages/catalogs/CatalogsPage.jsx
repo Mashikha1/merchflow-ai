@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
-import { Plus, Search, Filter, LayoutGrid, List, FileText, Image as ImageIcon, Briefcase, FileSignature, Layers } from 'lucide-react'
+import { Plus, Search, LayoutGrid, List, FileText, Image as ImageIcon } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { useQuery } from '@tanstack/react-query'
 import { catalogService } from '../../services/catalogService'
@@ -12,11 +12,8 @@ import { Loader2 } from 'lucide-react'
 const TABS = [
     { id: 'all', label: 'All Catalogs' },
     { id: 'lookbook', label: 'Lookbooks' },
-    { id: 'line sheet', label: 'Line Sheets' },
-    { id: 'price list', label: 'Price Lists' },
     { id: 'Draft', label: 'Drafts' },
     { id: 'Published', label: 'Published' },
-    { id: 'templates', label: 'Templates' },
 ]
 
 export function CatalogsPage() {
@@ -32,9 +29,6 @@ export function CatalogsPage() {
         if (activeTab === 'Draft') return c.status === 'Draft'
         if (activeTab === 'Published') return c.status === 'Published'
         if (activeTab === 'lookbook') return c.type?.toLowerCase() === 'lookbook'
-        if (activeTab === 'line sheet') return c.type?.toLowerCase() === 'line sheet'
-        if (activeTab === 'price list') return c.type?.toLowerCase() === 'price list'
-        if (activeTab === 'templates') return false
         return true
     })
 
@@ -129,14 +123,10 @@ export function CatalogsPage() {
 
                                     {/* Aspect Thumbnail */}
                                     <div className="aspect-[4/3] bg-gray-50 border-b border-gray-100 flex items-center justify-center relative overflow-hidden">
-                                        {catalog.type === 'Lookbook' && <ImageIcon className="h-10 w-10 text-gray-300 transform group-hover:scale-110 transition-transform duration-500" />}
-                                        {catalog.type === 'Line Sheet' && <Layers className="h-10 w-10 text-gray-300 transform group-hover:scale-110 transition-transform duration-500" />}
-                                        {catalog.type === 'Price List' && <FileSignature className="h-10 w-10 text-gray-300 transform group-hover:scale-110 transition-transform duration-500" />}
+                                        <ImageIcon className="h-10 w-10 text-gray-300 transform group-hover:scale-110 transition-transform duration-500" />
 
                                         <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2 py-1 flex items-center gap-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider text-gray-700 shadow-sm border border-gray-100">
-                                            {catalog.type === 'Lookbook' && <ImageIcon size={12} className="text-pink-500" />}
-                                            {catalog.type === 'Line Sheet' && <Layers size={12} className="text-blue-500" />}
-                                            {catalog.type === 'Price List' && <FileSignature size={12} className="text-emerald-500" />}
+                                            <ImageIcon size={12} className="text-pink-500" />
                                             {catalog.type}
                                         </div>
 

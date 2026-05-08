@@ -47,7 +47,7 @@ router.get('/', async (req, res, next) => {
         const { status, search, archived } = req.query
         const isBuyer = req.user.role === 'VIEWER'
         const baseWhere = isBuyer 
-            ? { archived: archived === 'true', buyerEmail: req.user.email }
+            ? { archived: archived === 'true', submittedByUserId: req.user.id }
             : { archived: archived === 'true', createdById: req.user.id }
 
         let quotes = await prisma.quote.findMany({
@@ -114,6 +114,8 @@ router.post('/', async (req, res, next) => {
                 source: source || (isBuyer ? 'Buyer Portal' : 'Sales'), currency: currency || 'USD',
                 expiryDate: expiryDate ? new Date(expiryDate) : new Date(Date.now() + 14 * 86400000),
                 assignedToId, customerId, internalNotes,
+                // Stamp the actual buyer user ID so filtering is exact, not email-based
+                submittedByUserId: isBuyer ? req.user.id : undefined,
                 items: { create: items.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unitPrice: i.unitPrice, discountPct: i.discountPct || 0, productId: i.productId })) },
                 history: { create: { by: req.user.name, action: 'Created draft' } },
                 createdById: targetSellerId

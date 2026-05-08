@@ -36,8 +36,8 @@ export function SignupPage() {
       // Pass name properly
       const name = `${values.firstName} ${values.lastName}`.trim()
       await signup({ name, email: values.email, password: values.password })
-      toast.success('Account created', { description: 'Let\'s set up your workspace.' })
-      navigate('/onboarding', { replace: true })
+      toast.success('Account created!', { description: 'Set up your company profile to get started.' })
+      navigate('/settings/company', { replace: true })
     } catch (e) {
       toast.error('Signup failed', { description: e.message || 'Please try again.' })
     } finally {

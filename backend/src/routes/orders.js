@@ -10,7 +10,7 @@ router.get('/', async (req, res, next) => {
     try {
         const isBuyer = req.user.role === 'VIEWER'
         const baseWhere = isBuyer 
-            ? { status: 'CONVERTED_TO_ORDER', archived: false, buyerEmail: req.user.email }
+            ? { status: 'CONVERTED_TO_ORDER', archived: false, submittedByUserId: req.user.id }
             : { status: 'CONVERTED_TO_ORDER', archived: false, createdById: req.user.id }
 
         const orders = await prisma.quote.findMany({
@@ -30,10 +30,10 @@ router.get('/', async (req, res, next) => {
             return { subtotal, discount, total: Math.max(0, subtotal - discount) }
         }
 
-        // Summary stats
+        // Summary stats — always scoped to this user
         const allQuotesWhere = isBuyer 
-            ? { archived: false, buyerEmail: req.user.email } 
-            : { archived: false }
+            ? { archived: false, submittedByUserId: req.user.id } 
+            : { archived: false, createdById: req.user.id }
         
         const allQuotes = await prisma.quote.findMany({ where: allQuotesWhere, include: { items: true } })
         const totalRevenuePotential = allQuotes.reduce((a, q) => {

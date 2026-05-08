@@ -100,14 +100,22 @@ export function OrdersPage() {
       if (activeTab === 'Quotes' && r.type !== 'Quote') return false
       const q = searchQuery.toLowerCase()
       if (!q) return true
+      if (isBuyer) {
+        return (r.sellerName + r.sellerEmail + r.id).toLowerCase().includes(q)
+      }
       return (r.buyerName + r.company + r.id).toLowerCase().includes(q)
     })
-  }, [allRequests, activeTab, searchQuery])
+  }, [allRequests, activeTab, searchQuery, isBuyer])
 
   const convertedOrdersCount = allRequests.filter(r => r.type === 'Order').length
   const pendingQuotesCount = allRequests.filter(r => r.type === 'Quote').length
 
-  const STATS = [
+  const STATS = isBuyer ? [
+    { label: 'My Requests', value: allRequests.length },
+    { label: 'Orders', value: convertedOrdersCount },
+    { label: 'Pending Quotes', value: pendingQuotesCount },
+    { label: 'Total Value', value: allRequests.length ? formatCurrency(allRequests.reduce((a, r) => a + (r.amount || 0), 0)) : '—', positive: true },
+  ] : [
     { label: 'Total Pipeline', value: allRequests.length },
     { label: 'Converted Orders', value: convertedOrdersCount },
     { label: 'Pending Quotes', value: pendingQuotesCount },
@@ -158,12 +166,18 @@ export function OrdersPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-80px)] overflow-hidden -mx-4 -mt-6">
       <PageHeader
-        title="Orders & Requests"
-        subtitle="Real-time B2B pipeline: quotes, orders, and sample requests from all your endpoints."
+        title={isBuyer ? 'My Orders & Quotes' : 'Orders & Requests'}
+        subtitle={
+          isBuyer
+            ? 'All your quote requests and confirmed orders from sellers.'
+            : 'Your B2B pipeline — quotes and orders from buyers on your products, catalogs, and showrooms.'
+        }
         action={
           <div className="flex items-center gap-3">
             <Button variant="outline" className="hidden sm:flex" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
-            <Button variant="outline" className="hidden sm:flex" onClick={() => toast.info('CSV export coming soon')}><Download className="w-4 h-4 mr-2" /> Export CSV</Button>
+            {!isBuyer && (
+              <Button variant="outline" className="hidden sm:flex" onClick={() => toast.info('CSV export coming soon')}><Download className="w-4 h-4 mr-2" /> Export CSV</Button>
+            )}
           </div>
         }
         className="shrink-0 pt-6 px-8 bg-white border-b border-gray-200 z-10"
@@ -200,7 +214,7 @@ export function OrdersPage() {
             <div className="flex items-center gap-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search buyer, company, ID..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9 w-64 h-9 text-sm" />
+                <Input placeholder={isBuyer ? 'Search seller, company, ID...' : 'Search buyer, company, ID...'} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9 w-64 h-9 text-sm" />
               </div>
             </div>
             <div className="text-xs font-bold text-content-tertiary">{filteredRequests.length} records</div>
@@ -213,19 +227,25 @@ export function OrdersPage() {
             ) : filteredRequests.length === 0 ? (
               <div className="p-16 text-center text-gray-500">
                 <FileText className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-                <p className="font-medium">No requests yet</p>
-                <p className="text-sm mt-1">Quotes and orders will appear here once buyers submit requests.</p>
+                <p className="font-medium">
+                  {isBuyer ? 'No orders or quotes yet' : 'No requests yet'}
+                </p>
+                <p className="text-sm mt-1">
+                  {isBuyer
+                    ? 'Your quote requests and confirmed orders will appear here.'
+                    : 'Quotes and orders from buyers on your products, catalogs, and showrooms will appear here.'}
+                </p>
               </div>
             ) : (
               <table className="w-full text-sm text-left whitespace-nowrap">
                 <thead className="text-[10px] uppercase tracking-wider font-bold text-content-tertiary bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="px-5 py-3">ID</th>
-                    <th className="px-5 py-3">Buyer / Company</th>
+                    <th className="px-5 py-3">{isBuyer ? 'Seller / Company' : 'Buyer / Company'}</th>
                     <th className="px-5 py-3">Type</th>
                     <th className="px-5 py-3">Status</th>
                     <th className="px-5 py-3">Amount</th>
-                    <th className="px-5 py-3">Assigned</th>
+                    {!isBuyer && <th className="px-5 py-3">Assigned</th>}
                     <th className="px-5 py-3">Received</th>
                     <th className="px-5 py-3 text-right">Actions</th>
                   </tr>
@@ -236,8 +256,17 @@ export function OrdersPage() {
                       className="border-b border-border-subtle hover:bg-gray-50 transition-colors cursor-pointer group">
                       <td className="px-5 py-3 font-mono text-[13px] font-bold text-gray-900">{req.id}</td>
                       <td className="px-5 py-3">
-                        <div className="font-bold text-content-primary">{req.company || req.buyerName}</div>
-                        <div className="text-[12px] text-content-tertiary">{req.buyerName}</div>
+                        {isBuyer ? (
+                          <>
+                            <div className="font-bold text-content-primary">{req.sellerName || 'MerchFlow Seller'}</div>
+                            <div className="text-[12px] text-content-tertiary">{req.sellerEmail || '—'}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="font-bold text-content-primary">{req.company || req.buyerName}</div>
+                            <div className="text-[12px] text-content-tertiary">{req.buyerName}</div>
+                          </>
+                        )}
                       </td>
                       <td className="px-5 py-3">
                         <Badge variant="outline" className={cn('text-[10px] font-bold uppercase px-2 py-0.5',
@@ -253,22 +282,26 @@ export function OrdersPage() {
                       <td className="px-5 py-3 font-mono font-medium text-content-secondary">
                         {req.amount != null ? formatCurrency(req.amount) : '—'}
                       </td>
-                      <td className="px-5 py-3">
-                        {req.assignedTo === 'Unassigned'
-                          ? <span className="text-gray-400 italic text-xs">Unassigned</span>
-                          : <div className="flex items-center gap-2">
-                              <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center text-[9px] font-bold text-indigo-700">{req.assignedTo.charAt(0)}</div>
-                              <span className="text-gray-700 font-medium text-xs">{req.assignedTo}</span>
-                            </div>
-                        }
-                      </td>
+                      {!isBuyer && (
+                        <td className="px-5 py-3">
+                          {req.assignedTo === 'Unassigned'
+                            ? <span className="text-gray-400 italic text-xs">Unassigned</span>
+                            : <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center text-[9px] font-bold text-indigo-700">{req.assignedTo.charAt(0)}</div>
+                                <span className="text-gray-700 font-medium text-xs">{req.assignedTo}</span>
+                              </div>
+                          }
+                        </td>
+                      )}
                       <td className="px-5 py-3 text-xs font-medium text-content-tertiary">{timeAgo(req.date)}</td>
                       <td className="px-5 py-3 text-right">
                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs font-bold text-brand" onClick={e => { e.stopPropagation(); setSelectedReq(req) }}>View</Button>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-red-500" onClick={e => { e.stopPropagation(); if (confirm('Delete?')) deleteM.mutate(req._id) }}>
-                            <Trash2 size={14} />
-                          </Button>
+                          {!isBuyer && (
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-red-500" onClick={e => { e.stopPropagation(); if (confirm('Delete?')) deleteM.mutate(req._id) }}>
+                              <Trash2 size={14} />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -406,7 +439,10 @@ export function OrdersPage() {
             </div>
 
             <div className="p-5 border-t bg-white flex justify-between shrink-0">
-              <Button variant="outline" className="text-red-500 hover:bg-red-50 font-bold text-xs" onClick={() => { if (confirm('Delete?')) deleteM.mutate(selectedReq._id) }}>Delete</Button>
+              {!isBuyer && (
+                <Button variant="outline" className="text-red-500 hover:bg-red-50 font-bold text-xs" onClick={() => { if (confirm('Delete?')) deleteM.mutate(selectedReq._id) }}>Delete</Button>
+              )}
+              {isBuyer && <div />}
               {!isBuyer && selectedReq.type === 'Quote' && (
                 <Button className="bg-brand font-bold shadow-md" onClick={() => handleUpdateStatus(selectedReq, 'CONVERTED_TO_ORDER')}>
                   <CheckCircle2 size={14} className="mr-1.5" /> Convert to Order

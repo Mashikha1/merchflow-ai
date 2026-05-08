@@ -20,6 +20,7 @@ model User {
   brandLogo      String?
   brandColor     String?
   brandEmail     String?
+  companyAddress String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   aiJobs         AIJob[]
@@ -193,31 +194,32 @@ model CustomerReminder {
 }
 
 model Quote {
-  id            String         @id @default(cuid())
-  number        Int            @default(autoincrement())
-  customerId    String?
-  buyerName     String
-  buyerCompany  String
-  buyerEmail    String
-  buyerPhone    String?
-  buyerCountry  String?
-  buyerAddress  String?
-  source        String         @default("Sales")
-  showroomId    String?
-  currency      String         @default("USD")
-  status        QuoteStatus    @default(DRAFT)
-  expiryDate    DateTime?
-  assignedToId  String?
-  createdById   String?
-  internalNotes String?
-  archived      Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  history       QuoteHistory[]
-  items         QuoteItem[]
-  assignedTo    User?          @relation("QuoteAssignee", fields: [assignedToId], references: [id])
-  createdBy     User?          @relation("QuoteCreator", fields: [createdById], references: [id])
-  customer      Customer?      @relation(fields: [customerId], references: [id])
+  id                String         @id @default(cuid())
+  number            Int            @default(autoincrement())
+  customerId        String?
+  buyerName         String
+  buyerCompany      String
+  buyerEmail        String
+  buyerPhone        String?
+  buyerCountry      String?
+  buyerAddress      String?
+  source            String         @default("Sales")
+  showroomId        String?
+  currency          String         @default("USD")
+  status            QuoteStatus    @default(DRAFT)
+  expiryDate        DateTime?
+  assignedToId      String?
+  createdById       String?
+  submittedByUserId String?        // The buyer's user ID when submitted via Buyer Portal
+  internalNotes     String?
+  archived          Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  history           QuoteHistory[]
+  items             QuoteItem[]
+  assignedTo        User?          @relation("QuoteAssignee", fields: [assignedToId], references: [id])
+  createdBy         User?          @relation("QuoteCreator", fields: [createdById], references: [id])
+  customer          Customer?      @relation(fields: [customerId], references: [id])
 
   @@map("quotes")
 }

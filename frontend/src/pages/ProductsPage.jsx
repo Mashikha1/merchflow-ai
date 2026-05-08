@@ -39,6 +39,8 @@ export function ProductsPage() {
   const [statusFilter, setStatusFilter] = useState('All')
   const [selected, setSelected] = useState([])
   const [addOpen, setAddOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [mode, setMode] = useState('existing') // 'existing' | 'new'
   const [existingId, setExistingId] = useState('')
   const [newName, setNewName] = useState('')
@@ -108,6 +110,24 @@ export function ProductsPage() {
     link.click()
     document.body.removeChild(link)
     toast.success('Products exported successfully')
+  }
+
+  const handleDeleteSelected = async () => {
+    if (!selected.length) return
+    setDeleting(true)
+    try {
+      await Promise.all(
+        selected.map(p => api(`/products/${p.id}`, { method: 'DELETE' }))
+      )
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      toast.success(`${selected.length} product(s) deleted`)
+      setSelected([])
+      setDeleteOpen(false)
+    } catch {
+      toast.error('Failed to delete some products')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const columns = [
@@ -250,6 +270,17 @@ export function ProductsPage() {
         <div className="flex items-center gap-3">
           {!isBuyer && (
             <>
+              {/* Delete — only visible when products are selected */}
+              {selected.length > 0 && (
+                <Button
+                  variant="secondary"
+                  className="hidden sm:flex text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete ({selected.length})
+                </Button>
+              )}
               <Button variant="secondary" className="hidden sm:flex" onClick={handleExport}>
                 <Download className="mr-2 h-4 w-4" /> Export
               </Button>
@@ -534,6 +565,57 @@ export function ProductsPage() {
           </div>
         </div>
       </RightDrawer>
+
+      {/* Delete Confirmation Dialog */}
+      {deleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !deleting && setDeleteOpen(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+            <div className="flex items-start gap-4">
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-base font-semibold text-gray-900">Delete {selected.length} product{selected.length > 1 ? 's' : ''}?</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  This will permanently delete the following product{selected.length > 1 ? 's' : ''} and all associated data. This cannot be undone.
+                </p>
+                <ul className="mt-3 space-y-1 max-h-36 overflow-y-auto">
+                  {selected.map(p => (
+                    <li key={p.id} className="text-sm text-gray-700 flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-gray-400 text-xs">({p.sku})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="secondary" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+                onClick={handleDeleteSelected}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Deleting…
+                  </span>
+                ) : (
+                  `Delete ${selected.length} Product${selected.length > 1 ? 's' : ''}`
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
