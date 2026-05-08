@@ -30,11 +30,11 @@ export const useAuthStore = create(
         return finalUser
       },
 
-      signup: async ({ name, email, password }) => {
+      signup: async ({ name, email, password, role = 'ADMIN' }) => {
         const res = await fetch(`${BASE_URL}/auth/signup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password })
+          body: JSON.stringify({ name, email, password, role })
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
