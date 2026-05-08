@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Check } from 'lucide-react'
+import { Loader2, Check, Store, ShoppingBag } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { PasswordField } from './LoginPage' // Reusing from LoginPage for consistency
 import { cn } from '../../lib/cn'
@@ -16,6 +16,7 @@ const schema = z.object({
   lastName: z.string().min(1, 'Last name required'),
   email: z.string().email('Enter a valid work email'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
+  role: z.enum(['ADMIN', 'VIEWER']),
   terms: z.literal(true, { errorMap: () => ({ message: 'You must agree to the terms' }) })
 })
 
@@ -25,7 +26,7 @@ export function SignupPage() {
 
   const form = useForm({
     resolver: zodResolver(schema),
-    defaultValues: { firstName: '', lastName: '', email: '', password: '', terms: false }
+    defaultValues: { firstName: '', lastName: '', email: '', password: '', role: 'ADMIN', terms: false }
   })
 
   const signup = useAuthStore(s => s.signup)
@@ -33,11 +34,14 @@ export function SignupPage() {
   const onSubmit = async (values) => {
     try {
       setLoading(true)
-      // Pass name properly
       const name = `${values.firstName} ${values.lastName}`.trim()
-      await signup({ name, email: values.email, password: values.password })
+      await signup({ name, email: values.email, password: values.password, role: values.role })
       toast.success('Account created!', { description: 'Set up your company profile to get started.' })
-      navigate('/settings/company', { replace: true })
+      if (values.role === 'ADMIN') {
+        navigate('/settings/company', { replace: true })
+      } else {
+        navigate('/buyer', { replace: true })
+      }
     } catch (e) {
       toast.error('Signup failed', { description: e.message || 'Please try again.' })
     } finally {
@@ -56,6 +60,8 @@ export function SignupPage() {
   }
   const strength = getStrength(passwordVal)
 
+  const selectedRole = form.watch('role')
+
   return (
     <div>
       <div className="mb-8">
@@ -64,6 +70,31 @@ export function SignupPage() {
       </div>
 
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+        {/* Role Selector */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-900 mb-2 ml-1">I am a</label>
+          <div className="grid grid-cols-2 gap-3">
+            {[{ value: 'ADMIN', label: 'Seller', desc: 'I sell products', icon: Store },
+              { value: 'VIEWER', label: 'Buyer', desc: 'I browse & order', icon: ShoppingBag }
+            ].map(({ value, label, desc, icon: Icon }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => form.setValue('role', value)}
+                className={cn(
+                  'flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all cursor-pointer',
+                  selectedRole === value
+                    ? 'border-black bg-black text-white'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'
+                )}
+              >
+                <Icon size={22} />
+                <span className="font-semibold text-sm">{label}</span>
+                <span className={cn('text-xs', selectedRole === value ? 'text-gray-300' : 'text-gray-400')}>{desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-1.5 ml-1">First Name</label>
